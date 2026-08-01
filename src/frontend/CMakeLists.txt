@@ -7,6 +7,7 @@ qt_add_executable(dir2mdQtQuick
 qt_add_qml_module(dir2mdQtQuick
     URI dir2mdQtQuick
     VERSION 1.0
+    RESOURCE_PREFIX /qt/qml
     QML_FILES Main.qml
 )
 

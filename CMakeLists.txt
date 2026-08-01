@@ -13,6 +13,6 @@ if(BUILD_COVERAGE)
 endif()
 
 # Find Qt6 modules installed via Qt Maintenance Tool
-find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2)
+find_package(Qt6 REQUIRED COMPONENTS Core Network Quick QuickControls2)
 
 add_subdirectory(src)
