@@ -132,6 +132,38 @@ void flattenJsonObject(const QJsonObject &obj, const QString &prefix, QHash<QStr
     }
 }
 
+auto toDisplayFormat(const QString &normalized) -> QString
+{
+    // Split on '-' (collapse consecutive dashes into single separator)
+    QStringList segments = normalized.split('-', Qt::SkipEmptyParts);
+    QStringList titleCased;
+    titleCased.reserve(segments.size());
+    for (const QString &seg : segments) {
+        if (seg.isEmpty()) continue;
+        QString title = seg;
+        title[0] = title[0].toUpper();
+        // Lowercase the rest of the segment (skip first char)
+        for (int i = 1; i < title.size(); ++i) {
+            title[i] = title[i].toLower();
+        }
+        titleCased.append(title);
+    }
+    return titleCased.join(' ');
+}
+
+auto toNormalizedFormat(const QString &display) -> QString
+{
+    // Split on whitespace (collapse consecutive spaces), lowercase each segment, join with '-'
+    QStringList segments = display.split(QRegularExpression(R"(\s+)"), Qt::SkipEmptyParts);
+    QStringList lower;
+    lower.reserve(segments.size());
+    for (const QString &seg : segments) {
+        if (seg.isEmpty()) continue;
+        lower.append(seg.toLower());
+    }
+    return lower.join('-');
+}
+
 } // anonymous namespace
 
 auto SettingSchema::isValid(const QVariant &val) const -> bool
@@ -250,9 +282,23 @@ auto SettingsManager::registerSchema(const SettingSchema &_schema) -> void
 {
     auto schema = _schema; // Make a copy to modify
     RUNTIME_ASSERT(isValidKeySyntax(schema.key));
+
+    // Extract key prefix (first segment before '/')
+    const QString keyPrefix = schema.key.section('/', 0, 0);
+
     if (schema.category.trimmed().isEmpty()) {
-        auto prefix = schema.key.section('/', 0, 0);
-        schema.category = prefix; // Default category if not provided
+        // Auto-fill empty category using display-format conversion from key prefix
+        schema.category = toDisplayFormat(keyPrefix);
+    } else {
+        // Consistency enforcement: normalize both category and key prefix for comparison
+        const QString normalizedCategory = toNormalizedFormat(schema.category.trimmed());
+        const QString normalizedPrefix = toNormalizedFormat(toDisplayFormat(keyPrefix));
+        if (normalizedCategory != normalizedPrefix) {
+            // Mismatched category — reject without side effects
+            qWarning() << "Category mismatch for key" << schema.key
+                       << "expected prefix" << keyPrefix << "with category" << schema.category.trimmed();
+            return;
+        }
     }
 
     // If the key already exists, revalidate its active value against the replacement.
@@ -317,23 +363,28 @@ bool SettingsManager::save_to_file(const QString &filePath)
             continue;
         }
 
-        // Determine category from schema
+        // Determine category from schema — use normalized format for JSON keys
         const SettingSchema &schema = m_schemaRegistry[key];
-        const QString category = schema.category.trimmed();
+        const QString displayCategory = schema.category.trimmed();
+        const QString jsonKey = toNormalizedFormat(displayCategory);
 
         // Split key on "/" for nesting
         QStringList pathParts = key.split("/", Qt::KeepEmptyParts);
-        if (!pathParts.isEmpty() && pathParts.first().compare(category, Qt::CaseSensitive) == 0) {
+        // Compare normalized forms to handle case differences (key prefix is lowercase,
+        // display category is title-case, but both normalize to the same form)
+        const QString firstPartNormalized = toNormalizedFormat(pathParts.first());
+        const QString displayCategoryNormalized = toNormalizedFormat(displayCategory);
+        if (!pathParts.isEmpty() && firstPartNormalized == displayCategoryNormalized) {
             pathParts.removeFirst();
         }
 
-        if (!categoryRoot.contains(category)) {
-            categoryRoot.insert(category, QJsonObject{});
+        if (!categoryRoot.contains(jsonKey)) {
+            categoryRoot.insert(jsonKey, QJsonObject{});
         }
 
-        QJsonObject catObj = categoryRoot[category].toObject();
+        QJsonObject catObj = categoryRoot[jsonKey].toObject();
         insertNestedValue(catObj, pathParts, value);
-        categoryRoot.insert(category, QJsonValue(catObj));
+        categoryRoot.insert(jsonKey, QJsonValue(catObj));
     }
 
     // Serialize with pretty-printing
@@ -419,40 +470,50 @@ bool SettingsManager::load_from_file(const QString &filePath)
             continue; // Skip empty keys
         }
 
-        QString category = flatParts.first();
-        QString schemaKey = flatKey;
+        QString jsonCategory = flatParts.first();
+        QString restOfPath = flatKey.mid(jsonCategory.size() + 1); // +1 for the '/'
 
-        // Validate key syntax
-        if (!isValidKeySyntax(schemaKey)) {
-            qWarning() << "Invalid key syntax for" << flatKey << "skipping";
-            continue;
+        // Find a matching schema by trying normalized category comparison
+        const SettingSchema *matchedSchema = nullptr;
+        QString matchedSchemaKey;
+
+        for (auto schIt = m_schemaRegistry.cbegin(); schIt != m_schemaRegistry.cend(); ++schIt) {
+            const QString &registeredKey = schIt.key();
+            QStringList regParts = registeredKey.split('/', Qt::KeepEmptyParts);
+            if (regParts.isEmpty()) continue;
+
+            // Compare normalized category forms
+            const QString jsonCatNormalized = toNormalizedFormat(jsonCategory);
+            const QString regCatNormalized = toNormalizedFormat(schIt->category);
+
+            if (jsonCatNormalized == regCatNormalized) {
+                // Check if the rest of the path matches
+                QString regRest = registeredKey.mid(regParts.first().size() + 1);
+                if (regRest == restOfPath) {
+                    matchedSchema = &schIt.value();
+                    matchedSchemaKey = registeredKey;
+                    break;
+                }
+            }
         }
 
-        // Look up schema using the full category/key path.
-        auto sch = schema(schemaKey);
-        if (!sch.has_value()) {
-            qWarning() << "Unknown key" << schemaKey << "skipping";
-            continue;
-        }
-
-        // Validate category matches schema's registered category
-        if (category != sch->category) {
-            qWarning() << "Category mismatch for" << flatKey << "expected" << sch->category << "got" << category;
+        if (!matchedSchema) {
+            qWarning() << "No matching schema for" << flatKey << "skipping";
             continue;
         }
 
         // Validate value against schema
-        if (!sch->isValid(value)) {
-            qWarning() << "Invalid value for key" << schemaKey << "skipping";
+        if (!matchedSchema->isValid(value)) {
+            qWarning() << "Invalid value for key" << matchedSchemaKey << "skipping";
             continue;
         }
 
         // Convert and stage the typed value in candidate map
         QVariant typedValue = value;
-        if (typedValue.canConvert(sch->type)) {
-            typedValue.convert(sch->type);
+        if (typedValue.canConvert(matchedSchema->type)) {
+            typedValue.convert(matchedSchema->type);
         }
-        candidateValues.insert(schemaKey, typedValue);
+        candidateValues.insert(matchedSchemaKey, typedValue);
     }
 
     // Determine which keys changed, were added, or disappeared

@@ -1,4 +1,6 @@
 {
     "cmake.configureOnEdit": false,
-    "cmake.ctest.testExplorerIntegrationEnabled": true
+    "cmake.ctest.testExplorerIntegrationEnabled": true,
+    "cmake.ctest.testSuiteDelimiter": "\\.",
+    "cmake.ctest.testSuiteDelimiterMaxOccurrence": 2
 }

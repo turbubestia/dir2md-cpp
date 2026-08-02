@@ -79,9 +79,22 @@ private slots:
 
     // Load atomic commit tests -----------------------------------------------
 
-    void test_load_category_mismatch_ignored();
+    void test_load_category_mismatch_normalized();
     void test_load_mixed_valid_invalid_entries();
     void test_load_malformed_json_fails_atomically();
     void test_load_non_object_top_level_fails();
     void test_load_successful_replaces_atomically();
+
+    // Case-insensitive category tests ----------------------------------------
+
+    void test_normalize_toDisplayFormat();
+    void test_normalize_toNormalizedFormat();
+    void test_normalize_multiSpace_collapse();
+    void test_registerSchema_autoFillEmptyCategory();
+    void test_registerSchema_consistencyEnforcement_accept();
+    void test_registerSchema_consistencyEnforcement_reject();
+    void test_load_caseInsensitiveCategoryMatching();
+    void test_load_underscoreNotSupported();
+    void test_save_normalizedFormatOutput();
+    void test_roundtrip_preservesCategories();
 };

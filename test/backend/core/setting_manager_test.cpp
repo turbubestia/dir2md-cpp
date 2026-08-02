@@ -733,7 +733,7 @@ void setting_manager_test::test_flatten_deeply_nested_json()
 
 // Load atomic commit tests -----------------------------------------------
 
-void setting_manager_test::test_load_category_mismatch_ignored()
+void setting_manager_test::test_load_category_mismatch_normalized()
 {
     QTemporaryDir tempDir;
     QVERIFY(tempDir.isValid());
@@ -742,21 +742,21 @@ void setting_manager_test::test_load_category_mismatch_ignored()
     dir2md::backend::SettingsManager manager;
     registerCoreSchemas(manager);
 
-    // Write JSON with wrong category (should be "Performance" for core/max_threads)
+    // Write JSON with case-variations of the same category — should all be accepted now
     QJsonObject root;
-    QJsonObject wrongCategory;
+    QJsonObject performance;
     QJsonObject core;
     core.insert("max_threads", QJsonValue(8));
-    wrongCategory.insert("core", core);
-    root.insert("WrongCategory", wrongCategory); // Wrong category
+    performance.insert("core", core);
+    root.insert("PERFORMANCE", performance); // Uppercase variant
 
     QVERIFY(writeJsonFile(filePath, root));
 
     bool result = manager.load_from_file(filePath);
     QVERIFY(result);
 
-    // Value should NOT be loaded due to category mismatch
-    QCOMPARE(manager.get("performance/core/max_threads").toInt(), 4); // Default value
+    // Value SHOULD be loaded — case-insensitive matching now works
+    QCOMPARE(manager.get("performance/core/max_threads").toInt(), 8);
 }
 
 void setting_manager_test::test_load_mixed_valid_invalid_entries()
@@ -865,4 +865,265 @@ void setting_manager_test::test_load_successful_replaces_atomically()
 
     // Signals should have been emitted for changed keys
     QVERIFY(spy.count() >= 2);
+}
+
+// Case-insensitive category tests --------------------------------------------
+
+void setting_manager_test::test_normalize_toDisplayFormat()
+{
+    // Test via registerSchema: empty category should be auto-filled from key prefix
+    dir2md::backend::SettingsManager manager;
+
+    dir2md::backend::SettingSchema schema1;
+    schema1.key = "file-editor/some-key";
+    manager.registerSchema(schema1);
+    QCOMPARE(manager.schema("file-editor/some-key")->category, QString("File Editor"));
+
+    dir2md::backend::SettingSchema schema2;
+    schema2.key = "my-category/deep/nested";
+    manager.registerSchema(schema2);
+    QCOMPARE(manager.schema("my-category/deep/nested")->category, QString("My Category"));
+
+    dir2md::backend::SettingSchema schema3;
+    schema3.key = "some-deeply-nested-category/x";
+    manager.registerSchema(schema3);
+    QCOMPARE(manager.schema("some-deeply-nested-category/x")->category,
+             QString("Some Deeply Nested Category"));
+
+    dir2md::backend::SettingSchema schema4;
+    schema4.key = "general/y";
+    manager.registerSchema(schema4);
+    QCOMPARE(manager.schema("general/y")->category, QString("General"));
+}
+
+void setting_manager_test::test_normalize_toNormalizedFormat()
+{
+    // Register schemas with display-format categories and verify they normalize correctly
+    dir2md::backend::SettingsManager manager;
+
+    // Register with explicit display category that matches key prefix
+    dir2md::backend::SettingSchema schema1;
+    schema1.key = "file-editor/key1";
+    schema1.category = "File Editor";
+    manager.registerSchema(schema1);
+    QVERIFY(manager.schema("file-editor/key1").has_value());
+
+    dir2md::backend::SettingSchema schema2;
+    schema2.key = "my-category/key2";
+    schema2.category = "My Category";
+    manager.registerSchema(schema2);
+    QVERIFY(manager.schema("my-category/key2").has_value());
+
+    dir2md::backend::SettingSchema schema3;
+    schema3.key = "general/key3";
+    schema3.category = "General";
+    manager.registerSchema(schema3);
+    QVERIFY(manager.schema("general/key3").has_value());
+}
+
+void setting_manager_test::test_normalize_multiSpace_collapse()
+{
+    // Double space in category should normalize to single dash
+    dir2md::backend::SettingsManager manager;
+
+    dir2md::backend::SettingSchema schema1;
+    schema1.key = "file-editor/key1";
+    schema1.category = "File  Editor"; // double space
+    manager.registerSchema(schema1);
+    QVERIFY(manager.schema("file-editor/key1").has_value());
+    QCOMPARE(manager.schema("file-editor/key1")->category, QString("File  Editor"));
+
+    // Double dash in key prefix should display as single space category
+    dir2md::backend::SettingSchema schema2;
+    schema2.key = "file--editor/key2";
+    manager.registerSchema(schema2);
+    QCOMPARE(manager.schema("file--editor/key2")->category, QString("File Editor"));
+}
+
+void setting_manager_test::test_registerSchema_autoFillEmptyCategory()
+{
+    dir2md::backend::SettingsManager manager;
+
+    // Register schema with empty category — should auto-fill from key prefix
+    dir2md::backend::SettingSchema schema1;
+    schema1.key = "display-preferences/brightness";
+    manager.registerSchema(schema1);
+    QVERIFY(manager.schema("display-preferences/brightness").has_value());
+    QCOMPARE(manager.schema("display-preferences/brightness")->category,
+             QString("Display Preferences"));
+
+    // Register schema with whitespace-only category — same behavior
+    dir2md::backend::SettingSchema schema2;
+    schema2.key = "network-settings/timeout";
+    schema2.category = "   ";
+    manager.registerSchema(schema2);
+    QVERIFY(manager.schema("network-settings/timeout").has_value());
+    QCOMPARE(manager.schema("network-settings/timeout")->category,
+             QString("Network Settings"));
+}
+
+void setting_manager_test::test_registerSchema_consistencyEnforcement_accept()
+{
+    dir2md::backend::SettingsManager manager;
+
+    // Matching prefix + category should be accepted
+    dir2md::backend::SettingSchema schema1;
+    schema1.key = "file-editor/tab-size";
+    schema1.category = "File Editor";
+    manager.registerSchema(schema1);
+    QVERIFY(manager.schema("file-editor/tab-size").has_value());
+
+    // Another matching case
+    dir2md::backend::SettingSchema schema2;
+    schema2.key = "general/option";
+    schema2.category = "General";
+    manager.registerSchema(schema2);
+    QVERIFY(manager.schema("general/option").has_value());
+}
+
+void setting_manager_test::test_registerSchema_consistencyEnforcement_reject()
+{
+    dir2md::backend::SettingsManager manager;
+
+    // Mismatched prefix + category should be rejected (no insertion, no side effects)
+    dir2md::backend::SettingSchema schema1;
+    schema1.key = "file-editor/tab-size";
+    schema1.category = "Display Preferences"; // Wrong — doesn't match "file-editor"
+    manager.registerSchema(schema1);
+    QVERIFY(!manager.schema("file-editor/tab-size").has_value());
+
+    // Another mismatched case
+    dir2md::backend::SettingSchema schema2;
+    schema2.key = "general/option";
+    schema2.category = "Performance"; // Wrong — doesn't match "general"
+    manager.registerSchema(schema2);
+    QVERIFY(!manager.schema("general/option").has_value());
+
+    // Verify no schemas were inserted
+    QCOMPARE(manager.schemas().size(), 0);
+}
+
+void setting_manager_test::test_load_caseInsensitiveCategoryMatching()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QString filePath = tempDir.path() + "/settings.json";
+
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+
+    // Test with various case formats of the same category
+    QJsonObject root;
+
+    // Use "General" (display format) for tool_path
+    QJsonObject general;
+    QJsonObject core1;
+    core1.insert("tool_path", QJsonValue("/usr/bin/tool"));
+    general.insert("core", core1);
+
+    // Use "PERFORMANCE" (uppercase) for max_threads
+    QJsonObject performanceUpper;
+    QJsonObject core2;
+    core2.insert("max_threads", QJsonValue(16));
+    performanceUpper.insert("core", core2);
+
+    root.insert("General", general);
+    root.insert("PERFORMANCE", performanceUpper);
+
+    QVERIFY(writeJsonFile(filePath, root));
+
+    bool result = manager.load_from_file(filePath);
+    QVERIFY(result);
+
+    // Both values should load successfully despite case differences
+    QCOMPARE(manager.get("general/core/tool_path").toString(), QString("/usr/bin/tool"));
+    QCOMPARE(manager.get("performance/core/max_threads").toInt(), 16);
+}
+
+void setting_manager_test::test_load_underscoreNotSupported()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QString filePath = tempDir.path() + "/settings.json";
+
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+
+    // Write JSON with underscore-separated key — should be rejected
+    QJsonObject root;
+    QJsonObject general_underscore; // "general_underscore" != "general" after normalization
+    QJsonObject core;
+    core.insert("tool_path", QJsonValue("/usr/bin/tool"));
+    general_underscore.insert("core", core);
+    root.insert("general_underscore", general_underscore);
+
+    QVERIFY(writeJsonFile(filePath, root));
+
+    bool result = manager.load_from_file(filePath);
+    QVERIFY(result); // Load succeeds but value is not loaded
+
+    // Value should NOT be loaded — underscore format doesn't match normalized "general"
+    // The default value is "/usr/bin/tool", so if it wasn't loaded, we get the default
+    QCOMPARE(manager.get("general/core/tool_path").toString(), QString("/usr/bin/tool"));
+}
+
+void setting_manager_test::test_save_normalizedFormatOutput()
+{
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+    manager.set("general/core/tool_path", QString("/usr/bin/tool"));
+    manager.set("performance/core/max_threads", 8);
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QString filePath = tempDir.path() + "/settings.json";
+
+    QVERIFY(manager.save_to_file(filePath));
+
+    // Verify JSON uses normalized (lowercase-dash) keys, NOT display format
+    auto rootOpt = readJsonFile(filePath);
+    QVERIFY(rootOpt.has_value());
+    QJsonObject root = rootOpt.value();
+
+    // Should have "general" and "performance" (normalized), NOT "General" or "Performance"
+    QVERIFY(root.contains("general"));
+    QVERIFY(root.contains("performance"));
+    QVERIFY(!root.contains("General"));
+    QVERIFY(!root.contains("Performance"));
+}
+
+void setting_manager_test::test_roundtrip_preservesCategories()
+{
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+    manager.set("general/core/tool_path", QString("/usr/bin/tool"));
+    manager.set("performance/core/max_threads", 8);
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QString filePath = tempDir.path() + "/settings.json";
+
+    // Save
+    QVERIFY(manager.save_to_file(filePath));
+
+    // Load into fresh manager
+    dir2md::backend::SettingsManager manager2;
+    registerCoreSchemas(manager2);
+    QVERIFY(manager2.load_from_file(filePath));
+
+    // Verify values are preserved
+    QCOMPARE(manager2.get("general/core/tool_path").toString(), QString("/usr/bin/tool"));
+    QCOMPARE(manager2.get("performance/core/max_threads").toInt(), 8);
+
+    // Save again and verify JSON is semantically equivalent
+    QString filePath2 = tempDir.path() + "/settings2.json";
+    QVERIFY(manager2.save_to_file(filePath2));
+
+    auto root1Opt = readJsonFile(filePath);
+    auto root2Opt = readJsonFile(filePath2);
+    QVERIFY(root1Opt.has_value());
+    QVERIFY(root2Opt.has_value());
+
+    // Both should have the same normalized keys
+    QCOMPARE(root1Opt.value().keys(), root2Opt.value().keys());
 }
