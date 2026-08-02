@@ -59,5 +59,16 @@
             "configurePreset": "debug-coverage",
             "configuration": "Debug"
         }
+    ],
+    "testPresets": [
+        {
+            "name": "debug",
+            "displayName": "Debug Test",
+            "description": "Run tests for Debug build",
+            "configurePreset": "debug",
+            "output": {
+                "outputOnFailure": true
+            }
+        }
     ]
 }

@@ -1,5 +1,5 @@
 ---
-name: plan-impl
+name: plan-implementation
 description: Generates a concrete implementation plan inside issue.prompt.md based on the analysis file
 argument-hint: "[raw request text or context or file]"
 ---

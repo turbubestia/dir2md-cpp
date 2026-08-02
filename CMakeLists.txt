@@ -13,6 +13,15 @@ if(BUILD_COVERAGE)
 endif()
 
 # Find Qt6 modules installed via Qt Maintenance Tool
-find_package(Qt6 REQUIRED COMPONENTS Core Network Quick QuickControls2)
+set(CMAKE_AUTOMOC ON)
+find_package(Qt6 REQUIRED COMPONENTS Core Network Quick QuickControls2 Test)
+
+# Add custom CMake module path for qtest_add_test and other helpers
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
 add_subdirectory(src)
+
+include(CTest)
+enable_testing()
+
+add_subdirectory(test)

@@ -51,6 +51,10 @@ public:
 
     auto schemas() const -> const QHash<QString, SettingSchema> &;
 
+    bool save_to_file(const QString &filePath);
+
+    bool load_from_file(const QString &filePath);
+
 signals:
     void settingChanged(const QString &key, const QVariant &newValue);
 

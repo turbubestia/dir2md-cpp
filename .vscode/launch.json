@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug CMake Configure",
+      "type": "cmake",
+      "request": "launch",
+      "cmakeDebugType": "configure",
+      "scriptPath": "${workspaceFolder}/CMakeLists.txt",
+      "clean": true
+    }
+  ]
+}

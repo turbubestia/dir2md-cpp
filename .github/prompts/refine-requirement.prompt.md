@@ -1,5 +1,5 @@
 ---
-name: refine
+name: refine-requirement
 description: Refines user requirements and outputs the result into issue_name.plan.request.md
 argument-hint: "[raw request text or context or file]"
 ---
