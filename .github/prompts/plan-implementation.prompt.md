@@ -22,17 +22,22 @@ At the very beginning of the target file, insert a dedicated block that explicit
 
 ## Core Rules & Execution Flow
 
-### 1. Clarifying Code vs. Pseudocode
-- Do **not** modify or create any implementation code in your actual workspace files yet.
-- Only add descriptive, step-by-step instructions in the target `.prompt.md` file. This is a blueprint for developers to follow, not the code itself.
-
-### 2. Phase-Based Breakdown
+### 1. Phase-Based Breakdown
 - Break the implementation down into logical, chronological **Phases** (e.g., Database Migrations, API/Backend, Frontend, Tests).
 - Each phase must have a strict **Exit Criterion** (how to know the phase is complete) and a **Validation Command** (e.g., a specific test runner, linter, or curl request to verify).
 - Each phase must explicitly reference the relevant Section IDs or Requirement IDs from the analysis document.
 
-### 3. Test and Coverage
+### 2. Test and Coverage
 - The plan must include a dedicated **Testing Phase** that outlines how to validate the implementation against the acceptance criteria defined in the analysis document.
 - Files and classes must be implemented with unit testeability in mind, where each `src/path/to/file.hpp/.cpp` is matched with a corresponding `tests/path/to/file.test.cpp`.
 - Test must be run using coverage targets in cmake to ensure both correctness and coverage. Include specific commands to run tests and generate coverage reports.
+
+### 3. Limitations & Constraints
+- DO NOT create or neither write any implementation code in your actual workspace files yet.
+- Only add descriptive, step-by-step instructions in the target `.prompt.md` file. This is a blueprint for developers to follow, not the code itself.
+- Do not add code snippets or pseudocode in the plan. The plan is purely descriptive and instructional.
+
+### 4. Output Format
+- Use Markdown for the output file.
+- Validate the generated file agains this instructions.
  

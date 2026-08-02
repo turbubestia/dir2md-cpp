@@ -37,4 +37,17 @@ private slots:
 
     // Test SettingsManager signal emission on set.
     void test_settings_manager_signal();
+
+    // Save/load tests --------------------------------------------------------
+
+    void test_save_to_file_creates_json();
+    void test_save_to_file_nested_keys();
+    void test_save_to_file_unregistered_keys_general_category();
+    void test_load_from_file_missing_returns_false();
+    void test_load_from_file_malformed_json();
+    void test_load_from_file_valid_replaces_values();
+    void test_roundtrip_preserves_types();
+    void test_load_from_file_invalid_value_skipped();
+    void test_load_from_file_unknown_key_silently_ignored();
+    void test_settings_saved_signal_emitted();
 };

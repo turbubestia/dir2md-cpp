@@ -57,6 +57,7 @@ public:
 
 signals:
     void settingChanged(const QString &key, const QVariant &newValue);
+    void settingsSaved(const QString &path);
 
 private:
     QHash<QString, QVariant> m_values;          // Flat value store ($O(1)$)

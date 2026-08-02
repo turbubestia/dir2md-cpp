@@ -6,525 +6,382 @@
 
 ## Overview
 
-This plan implements `save_to_file()` and `load_from_file()` on `SettingsManager`, enabling persistent JSON configuration storage with atomic writes, schema validation, and full type round-trip integrity. The methods are already declared in the public header but have no implementation body.
+This plan describes the step-by-step implementation of save/load settings functionality for the `SettingsManager` class in the backend core library. The feature adds JSON serialization/deserialization to persist application settings to disk and restore them, using atomic file writes via `QSaveFile`.
 
-**Scope:** Backend Core only (`src/backend/core/`). No frontend, CLI, or schema changes.
-
----
-
-## Phase 1 — Anonymous-Namespace Serialization Helpers
-
-**References:** Analysis §2 (Component & File Impact Map → `settings_manager.cpp`), §3 (Separator Semantics, Type Round-Trip Integrity)
-
-**Goal:** Implement two static helper functions in an anonymous namespace so they are invisible outside `settings_manager.cpp`.
-
-### Step 1.1 — Add Required Includes
-
-Add the following includes to `src/backend/core/settings_manager.cpp`, after the existing `#include "settings_manager.hpp"`:
-
-```cpp
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QJsonArray>
-#include <QFile>
-#include <QSaveFile>
-#include <QDebug>
-```
-
-**Exit Criterion:** All new includes compile without errors. No other files modified in this step.
-
-### Step 1.2 — Implement `insertNestedValue` (Anonymous Namespace)
-
-Add to the anonymous namespace at the top of `settings_manager.cpp`:
-
-```cpp
-namespace {
-
-void insertNestedValue(QJsonObject &obj, const QStringList &pathParts, const QVariant &value)
-{
-    if (pathParts.isEmpty()) {
-        return;
-    }
-
-    if (pathParts.size() == 1) {
-        // Leaf: set the value directly.
-        obj.insert(pathParts.first(), QJsonValue::fromVariant(value));
-        return;
-    }
-
-    // Intermediate level: ensure a QJsonObject exists at this path segment.
-    QString key = pathParts.first();
-    if (!obj.contains(key) || !obj[key].isObject()) {
-        obj.insert(key, QJsonObject{});
-    }
-
-    // Recurse into the nested object with remaining path parts.
-    QStringList rest = pathParts;
-    rest.removeFirst();
-    insertNestedValue(obj[key].toObject(), rest, value);
-}
-
-} // anonymous namespace
-```
-
-**Logic details:**
-- Splits on `/` only — `.` and all other characters are literal key content (Analysis §3).
-- Creates intermediate `QJsonObject` levels as needed.
-- Uses `QJsonValue::fromVariant()` for type-preserving conversion (Analysis §3, Type Round-Trip Integrity).
-
-**Exit Criterion:** Function compiles. No runtime test yet — validation in Phase 4.
-
-### Step 1.3 — Implement `flattenJsonObject` (Anonymous Namespace)
-
-Add to the same anonymous namespace:
-
-```cpp
-void flattenJsonObject(const QJsonObject &obj, const QString &prefix, QHash<QString, QVariant> &out)
-{
-    for (auto it = obj.begin(); it != obj.end(); ++it) {
-        QString key = it.key();
-        QString fullKey = prefix.isEmpty() ? key : prefix + "/" + key;
-
-        if (it.value().isObject()) {
-            // Recurse into nested object.
-            flattenJsonObject(it.value().toObject(), fullKey, out);
-        }
-        else {
-            // Leaf value: collect into flat hash.
-            out.insert(fullKey, it.value().toVariant());
-        }
-    }
-}
-```
-
-**Logic details:**
-- Recursively traverses nested `QJsonObject`s (Analysis §2).
-- Joins path segments with `/` — the same separator used during save (Analysis §3).
-- Only leaf values (non-object) are added to output hash.
-
-**Exit Criterion:** Both helpers compile within the anonymous namespace. No external visibility.
+**Scope:** Backend Core only (`src/backend/core/`). No frontend, CLI, schema, or CMake changes required.
 
 ---
 
-## Phase 2 — Implement `save_to_file()`
+## Phase 1: Header Modifications — Add Signal Declaration
 
-**References:** Analysis §2 (`settings_manager.cpp` → `save_to_file`), §3 (Error Handling — Write Failure)
+**References:** Analysis Section 2 (Component & File Impact Map), settings_manager.hpp structural changes.
 
-**Goal:** Serialize in-memory settings to a pretty-printed JSON file with atomic write via `QSaveFile`.
+### Step 1.1 — Add `settingsSaved` signal to SettingsManager
 
-### Step 2.1 — Implement `save_to_file` Method Body
+- **File:** `src/backend/core/settings_manager.hpp`
+- **Action:** Add a new signal declaration inside the existing `signals:` block:
+  - Declare `void settingsSaved(const QString &path);`
+- **Exit Criterion:** The header compiles without errors; the signal is visible to Qt's MOC system.
 
-Add the implementation after the existing methods in `settings_manager.cpp`:
+### Step 1.2 — Add necessary includes to the header (if not already transitively included)
 
-```cpp
-auto SettingsManager::save_to_file(const QString &filePath) -> bool
-{
-    // 1. Group values by category from schema registry.
-    QHash<QString, QJsonObject> grouped;  // category → nested object
+- **File:** `src/backend/core/settings_manager.hpp`
+- **Action:** Verify that `#include <QJsonObject>` and `#include <QJsonDocument>` are present. If they are not, add them. These are needed if any downstream code includes the header and uses JSON types in conjunction with SettingsManager.
+- **Exit Criterion:** All required Qt headers are included; no missing-type compilation errors.
 
-    for (auto it = m_values.constBegin(); it != m_values.constEnd(); ++it) {
-        const QString &key = it.key();
-        const QVariant &value = it.value();
-
-        // Determine category: use schema if registered, otherwise "General".
-        QString category;
-        if (m_schemaRegistry.contains(key)) {
-            category = m_schemaRegistry.value(key).category;
-        }
-        else {
-            category = "General";
-        }
-
-        // Split key on "/" for nesting.
-        QStringList pathParts = key.split('/', Qt::KeepEmptyParts);
-        insertNestedValue(grouped[category], pathParts, value);
-    }
-
-    // 2. Build top-level nested object from grouped categories.
-    QJsonObject topLevel;
-    for (auto it = grouped.constBegin(); it != grouped.constEnd(); ++it) {
-        topLevel.insert(it.key(), it.value());
-    }
-
-    // 3. Serialize to pretty-printed JSON (2-space indentation).
-    QJsonDocument doc(topLevel);
-    QByteArray json = doc.toJson(QJsonDocument::Indented);
-
-    // 4. Atomic write via QSaveFile.
-    QSaveFile file(filePath);
-    if (!file.open(QIODevice::WriteOnly)) {
-        qWarning() << "save_to_file: cannot open" << filePath << ":" << file.errorString();
-        return false;
-    }
-
-    file.write(json);
-
-    if (!file.commit()) {
-        qWarning() << "save_to_file: commit failed for" << filePath << ":" << file.errorString();
-        return false;
-    }
-
-    // 5. Emit signal on success.
-    emit settingsSaved(filePath);
-
-    return true;
-}
-```
-
-**Logic details:**
-- Groups values by `SettingSchema::category` from the registry (Analysis §2).
-- Keys without a registered schema fall under `"General"` (Analysis §3, Verification Checklist item 4).
-- Uses `QSaveFile::commit()` for atomicity — if commit fails, file is rolled back automatically (Analysis §3).
-- Emits `settingsSaved(filePath)` only on success (Analysis §2).
-
-**Exit Criterion:** Compiles. No signal handler connected yet — validation in Phase 4.
-
-### Step 2.2 — Add `settingsSaved` Signal to Header
-
-In `src/backend/core/settings_manager.hpp`, add the signal declaration inside the `signals:` section:
-
-```cpp
-    void settingsSaved(const QString &path);
-```
-
-**Exit Criterion:** Signal is declared in the header, matching the emit in the .cpp.
-
----
-
-## Phase 3 — Implement `load_from_file()`
-
-**References:** Analysis §2 (`settings_manager.cpp` → `load_from_file`), §3 (Error Handling — Missing File, Malformed JSON, Invalid Value; Security & Permissions)
-
-**Goal:** Load settings from a JSON file with full schema validation, full replacement semantics, and proper error handling.
-
-### Step 3.1 — Implement `load_from_file` Method Body
-
-Add the implementation after `save_to_file` in `settings_manager.cpp`:
-
-```cpp
-auto SettingsManager::load_from_file(const QString &filePath) -> bool
-{
-    // 1. Open file; return false if missing/unreadable (no error logged for missing — expected on first run).
-    QFile file(filePath);
-    if (!file.open(QIODevice::ReadOnly)) {
-        // Missing file is not an error — just return false without modifying m_values.
-        if (file.exists()) {
-            qWarning() << "load_from_file: cannot read" << filePath << ":" << file.errorString();
-        }
-        return false;
-    }
-
-    QByteArray data = file.readAll();
-    file.close();
-
-    // 2. Parse JSON; return false with error on malformed JSON.
-    QJsonParseError parseError;
-    QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
-    if (doc.isNull() || parseError.error != QJsonParseError::NoError) {
-        qWarning() << "load_from_file: malformed JSON in" << filePath
-                   << ":" << parseError.errorString();
-        return false;
-    }
-
-    // 3. Convert nested JSON → flat QHash<QString, QVariant>.
-    QJsonObject rootObj = doc.object();
-    QHash<QString, QVariant> flatValues;
-    for (auto it = rootObj.begin(); it != rootObj.end(); ++it) {
-        QString category = it.key();
-        const QJsonObject &catObj = it.value().toObject();
-        flattenJsonObject(catObj, category, flatValues);
-    }
-
-    // 4. Clear m_values entirely (full replacement semantics).
-    m_values.clear();
-
-    // 5. Validate each key/value against registered schema.
-    for (auto it = flatValues.constBegin(); it != flatValues.constEnd(); ++it) {
-        const QString &key = it.key();
-        const QVariant &value = it.value();
-
-        // Silently ignore keys not registered in any schema (no warning, no insertion).
-        if (!m_schemaRegistry.contains(key)) {
-            continue;
-        }
-
-        // Validate against schema.
-        const SettingSchema &schema = m_schemaRegistry.value(key);
-        if (!schema.isValid(value)) {
-            qWarning() << "load_from_file: invalid value for key" << key
-                       << "(type:" << value.typeName() << "), skipping.";
-            continue;
-        }
-
-        // Valid: insert and emit.
-        m_values.insert(key, value);
-        emit settingChanged(key, value);
-    }
-
-    return true;
-}
-```
-
-**Logic details:**
-- **Missing file:** Returns `false`, does NOT modify `m_values`, no error logged (Analysis §3). This is expected on first run.
-- **Unreadable file (permissions):** Returns `false`, logs via `qWarning()` (Analysis §3).
-- **Malformed JSON:** Returns `false`, logs parse error details via `qWarning()` with `QJsonParseError` info (Analysis §3).
-- **Invalid value during load:** Skips that key, logs warning to stdout, continues processing remaining keys (Analysis §3).
-- **Keys not in schema:** Silently ignored — no warning, no insertion (Analysis §2, Verification Checklist item 10).
-- **Full replacement:** `m_values.clear()` before inserting loaded values (Analysis §2, Verification Checklist item 5).
-
-**Exit Criterion:** Compiles. All error paths return `false` as specified.
-
----
-
-## Phase 4 — Test Infrastructure Setup
-
-**References:** Analysis §4 (Verification Checklist), Prompt Instructions §3 (Test and Coverage)
-
-**Goal:** Create Qt Test-based unit tests with CMake integration, enabling coverage reporting.
-
-### Step 4.1 — Create `test/CMakeLists.txt`
-
-Create the file `test/CMakeLists.txt`:
-
-```cmake
-# Enable testing
-find_package(Qt6 REQUIRED COMPONENTS Test)
-
-qt_add_executable(dir2md_settings_test
-    settings_manager_test.cpp
-)
-
-target_link_libraries(dir2md_settings_test PRIVATE
-    dir2md_backend
-    Qt6::Test
-)
-
-set_target_properties(dir2md_settings_test PROPERTIES
-    CXX_STANDARD 20
-    CXX_STANDARD_REQUIRED ON
-)
-
-# Register as a CTest test
-add_test(NAME dir2md_settings_test COMMAND dir2md_settings_test)
-```
-
-### Step 4.2 — Update Root `CMakeLists.txt` to Include Test Subdirectory
-
-In the root `CMakeLists.txt`, after `add_subdirectory(src)`, add:
-
-```cmake
-add_subdirectory(test)
-```
-
-**Exit Criterion:** `cmake --preset debug` succeeds and discovers the test target. Verify with:
+**Validation Command:**
 ```bash
-cmake --build --preset debug --target dir2md_settings_test
+cmake --build --preset debug --target dir2md_backend
 ```
 
 ---
 
-## Phase 5 — Unit Tests
+## Phase 2: Implementation — Anonymous Namespace Helpers
 
-**References:** Analysis §4 (all 13 verification checklist items), Prompt Instructions §3
+**References:** Analysis Section 2 (settings_manager.cpp structural changes), insertNestedValue and flattenJsonObject logic modifications.
 
-**Goal:** Implement comprehensive unit tests covering every verification checklist item.
+### Step 2.1 — Add JSON/file I/O includes to settings_manager.cpp
 
-### Step 5.1 — Create `test/settings_manager_test.cpp`
+- **File:** `src/backend/core/settings_manager.cpp`
+- **Action:** Add the following includes after the existing `#include "settings_manager.hpp"`:
+  - `#include <QJsonDocument>`
+  - `#include <QJsonObject>`
+  - `#include <QJsonArray>`
+  - `#include <QFile>`
+  - `#include <QSaveFile>`
+  - `#include <QDebug>`
+- **Exit Criterion:** All includes are present; no duplicate includes introduced.
 
-Create the file `test/settings_manager_test.cpp` with the following test classes and methods:
+### Step 2.2 — Create anonymous namespace with `insertNestedValue` helper
 
-#### Test Class: `TestSaveToFile`
+- **File:** `src/backend/core/settings_manager.cpp`
+- **Action:** After the existing includes and before `namespace dir2md::backend`, create an anonymous namespace containing a static function:
+  - **Signature:** `void insertNestedValue(QJsonObject &obj, const QStringList &pathParts, const QVariant &value)`
+  - **Behavior:**
+    1. If `pathParts` has exactly one element, set the value directly in `obj` using `obj.insert(pathParts[0], QJsonValue::fromVariant(value))`.
+    2. If `pathParts` has more than one element, check if `obj[pathParts[0]]` is already a `QJsonObject`. If not, create one: `obj.insert(pathParts[0], QJsonObject{})`.
+    3. Recurse: call `insertNestedValue` with the nested object, the remaining path parts (skip first), and the value.
+  - **Separator semantics:** Path parts are already split on `/` by the caller. The `.` character is never treated as a separator — it remains part of the key name.
+- **Exit Criterion:** Function compiles; logic correctly nests values at arbitrary depth.
 
-| Test Method | Verification Checklist Item | Description |
-|---|---|---|
-| `saveProducesValidJson()` | #1 | Save settings, read back file, parse as JSON — verify structure has category top-level keys with nested settings. |
-| `saveKeysWithDotNotSplit()` | #2 | Set a key containing `.` (e.g., `"core/file.name"`), save, verify the key remains flat within its category — not split on `.`. |
-| `saveKeysWithSlashNested()` | #3 | Set a key containing `/` (e.g., `"editor/tab_size"` in "Editor" category), save, verify correct nesting: `{ "Editor": { "tab_size": 4 } }`. |
-| `saveUnregisteredKeyUnderGeneral()` | #4 | Set a key with no registered schema, save, verify it appears under the `"General"` top-level group. |
+### Step 2.3 — Create anonymous namespace with `flattenJsonObject` helper
 
-#### Test Class: `TestLoadFromFile`
+- **File:** `src/backend/core/settings_manager.cpp`
+- **Action:** In the same anonymous namespace, add a static function:
+  - **Signature:** `void flattenJsonObject(const QJsonObject &obj, const QString &prefix, QHash<QString, QVariant> &out)`
+  - **Behavior:**
+    1. Iterate over all key-value pairs in `obj`.
+    2. For each pair, build the full path: if `prefix` is empty, use the key as-is; otherwise, concatenate `prefix + "/" + key`.
+    3. If the value is a `QJsonObject`, recurse with the new prefix.
+    4. If the value is NOT a `QJsonObject` (i.e., a leaf), convert it to `QVariant` using `value.toVariant()` and insert into `out` with the full path as key.
+- **Exit Criterion:** Function compiles; correctly flattens nested JSON back to flat key-value pairs with `/` separators.
 
-| Test Method | Verification Checklist Item | Description |
-|---|---|---|
-| `loadReplacesAllValues()` | #5 | Set some values, load from file (with different values), verify old values are gone — full replacement. |
-| `missingFileReturnsFalseNoModify()` | #7 | Call `load_from_file()` on a non-existent path, verify it returns `false` and `m_values` is unchanged. |
-| `malformedJsonReturnsFalse()` | #8 | Write invalid JSON to a file, call `load_from_file()`, verify it returns `false` and logs an error. |
-| `invalidValueSkippedWithWarning()` | #9 | Write a JSON with one valid and one invalid value (fails schema validation), verify only the valid one is loaded. |
-| `unregisteredKeySilentlyIgnored()` | #10 | Write a JSON containing a key not in any schema, verify it is silently ignored — no warning, no insertion. |
-
-#### Test Class: `TestRoundTrip`
-
-| Test Method | Verification Checklist Item | Description |
-|---|---|---|
-| `saveLoadRoundTripPreservesValues()` | #6 | Set multiple values of different types (int, double, QString, bool), save to file, load from same file, verify all key/value pairs and types are identical. |
-
-#### Test Class: `TestSettingsSavedSignal`
-
-| Test Method | Verification Checklist Item | Description |
-|---|---|---|
-| `settingsSavedEmittedOnSuccess()` | #11 | Connect a slot to `settingsSaved()`, call `save_to_file()`, verify the signal fires with the correct path. |
-
-#### Test Class: `TestSerializationHelpers`
-
-| Test Method | Verification Checklist Item | Description |
-|---|---|---|
-| `insertNestedValueCreatesHierarchy()` | #13 (indirect) | Directly test `insertNestedValue` to verify it creates nested `QJsonObject` structure from slash-separated path. |
-| `flattenJsonObjectReconstructsFlatKeys()` | #13 (indirect) | Directly test `flattenJsonObject` to verify it reconstructs flat keys with `/` separators from nested object. |
-
-**Note:** Since the helpers are in an anonymous namespace, they cannot be tested directly from outside the translation unit. Instead, test them indirectly through `save_to_file()` and `load_from_file()` — which is actually more robust as it tests the full integration path. Remove the two direct helper tests above; replace with integration-level coverage.
-
-### Step 5.2 — Test File Structure (Pseudocode)
-
-```cpp
-#include <QObject>
-#include <QTemporaryFile>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QSignalSpy>
-#include <backend/core/settings_manager.hpp>
-#include <backend/core/core_schema.hpp>
-
-class TestSaveToFile : public QObject {
-    Q_OBJECT
-private slots:
-    void saveProducesValidJson();
-    void saveKeysWithDotNotSplit();
-    void saveKeysWithSlashNested();
-    void saveUnregisteredKeyUnderGeneral();
-};
-
-class TestLoadFromFile : public QObject {
-    Q_OBJECT
-private slots:
-    void loadReplacesAllValues();
-    void missingFileReturnsFalseNoModify();
-    void malformedJsonReturnsFalse();
-    void invalidValueSkippedWithWarning();
-    void unregisteredKeySilentlyIgnored();
-};
-
-class TestRoundTrip : public QObject {
-    Q_OBJECT
-private slots:
-    void saveLoadRoundTripPreservesValues();
-};
-
-class TestSettingsSavedSignal : public QObject {
-    Q_OBJECT
-private slots:
-    void settingsSavedEmittedOnSuccess();
-};
+**Validation Command:**
+```bash
+cmake --build --preset debug --target dir2md_backend
 ```
 
-Each test method should:
-1. Create a `QTemporaryFile` for isolated file I/O (no pollution of real filesystem).
-2. Set up a `SettingsManager`, register schemas via `CoreSchema::registerSchemas()`.
-3. Perform the operation (save/load).
-4. Assert expectations using Qt Test macros (`QCOMPARE`, `QVERIFY`, `QVERIFY_NOT_NULL`).
+---
 
-**Exit Criterion:** All tests pass with:
+## Phase 3: Implementation — save_to_file Method
+
+**References:** Analysis Section 2 (save_to_file logic), Analysis Section 3 (Error Handling for write failure, Atomic write pattern).
+
+### Step 3.1 — Implement `SettingsManager::save_to_file(const QString &filePath)`
+
+- **File:** `src/backend/core/settings_manager.cpp`
+- **Action:** Add the method implementation after the existing methods in the `dir2md::backend` namespace:
+  - **Step 3.1.1:** Group `m_values` by category. Iterate over all key-value pairs in `m_values`. For each key, look up its schema via `schema(key)`. If found, use `schema->category`; if not found, use `"General"` as the default category. Build a `QJsonObject` where top-level keys are categories and values are nested objects built by calling `insertNestedValue`.
+  - **Step 3.1.2:** Wrap the category-rooted `QJsonObject` in a `QJsonDocument`: `QJsonDocument doc(categoryRoot)`.
+  - **Step 3.1.3:** Serialize with pretty-printing: `doc.toJson(QJsonDocument::Indented)` (use 2-space indentation via `doc.setObject()` and manual formatting if needed, or use `QJsonDocument::Indented` which produces standard indentation).
+  - **Step 3.1.4:** Write atomically using `QSaveFile`:
+    1. Construct `QSaveFile saveFile(filePath)`.
+    2. Call `saveFile.open(QIODevice::WriteOnly)`. Return `false` if open fails.
+    3. Write the JSON bytes: `saveFile.write(jsonBytes)`. Check for write errors; return `false` on failure.
+    4. Call `saveFile.commit()`. If commit returns `false`, return `false` (atomic rollback occurred).
+  - **Step 3.1.5:** On successful commit, emit `settingsSaved(filePath)`.
+  - **Step 3.1.6:** Return `true` on success.
+- **Exit Criterion:** Method compiles; produces valid, pretty-printed JSON with categories as top-level keys.
+
+**Validation Command:**
 ```bash
-cmake --build --preset debug --target dir2md_settings_test
+cmake --build --preset debug --target dir2md_backend
+```
+
+---
+
+## Phase 4: Implementation — load_from_file Method
+
+**References:** Analysis Section 2 (load_from_file logic), Analysis Section 3 (Error Handling for missing file, malformed JSON, invalid values, unknown keys).
+
+### Step 4.1 — Implement `SettingsManager::load_from_file(const QString &filePath)`
+
+- **File:** `src/backend/core/settings_manager.cpp`
+- **Action:** Add the method implementation after `save_to_file` in the `dir2md::backend` namespace:
+  - **Step 4.1.1:** Open file with `QFile`:
+    1. Construct `QFile file(filePath)`.
+    2. Call `file.open(QIODevice::ReadOnly | QIODevice::Text)`. Return `false` if open fails (missing/unreadable file — no warning logged, this is expected on first run).
+  - **Step 4.1.2:** Read and parse:
+    1. Read all bytes: `QByteArray data = file.readAll()`. Close the file.
+    2. Parse with `QJsonDocument doc = QJsonDocument::fromJson(data)`.
+    3. If `doc.isNull()` or `doc.isEmpty()`, log via `qWarning() << "Failed to parse JSON:"` with details from `QJsonParseError`, then return `false`.
+    4. Extract the root object: `QJsonObject root = doc.object()`. Verify it is not empty; if empty, return `false`.
+  - **Step 4.1.3:** Flatten the nested JSON:
+    1. Create a temporary `QHash<QString, QVariant> loadedValues`.
+    2. Call `flattenJsonObject(root, QString(), loadedValues)` to convert nested JSON → flat key-value pairs.
+  - **Step 4.1.4:** Clear existing state and populate:
+    1. Call `m_values.clear()` (full replacement semantics).
+    2. Iterate over each key-value pair in `loadedValues`.
+    3. For each pair, look up the schema via `schema(key)`:
+       - **If schema exists:** Validate the value using `schema->isValid(value)`.
+         - If valid: insert into `m_values`, emit `settingChanged(key, value)`.
+         - If invalid: log via `qWarning() << "Invalid value for key" << key << "skipping"`, continue to next pair.
+       - **If schema does NOT exist:** Silently skip (no warning, no insertion). This handles unknown/extra keys in the JSON file.
+  - **Step 4.1.5:** Return `true` on success.
+- **Exit Criterion:** Method compiles; correctly loads, validates, and populates settings from a JSON file.
+
+**Validation Command:**
+```bash
+cmake --build --preset debug --target dir2md_backend
+```
+
+---
+
+## Phase 5: Unit Tests — Save/Load Functionality
+
+**References:** Analysis Section 3 (Verification Checklist items 1-7, 11, 13).
+
+### Step 5.1 — Add test declarations to the test header
+
+- **File:** `test/backend/core/setting_manager_test.hpp`
+- **Action:** Add new test method declarations in the `private slots:` section:
+  - `void test_save_to_file_creates_json();`
+  - `void test_save_to_file_nested_keys();`
+  - `void test_save_to_file_unregistered_keys_general_category();`
+  - `void test_load_from_file_missing_returns_false();`
+  - `void test_load_from_file_malformed_json();`
+  - `void test_load_from_file_valid_replaces_values();`
+  - `void test_roundtrip_preserves_types();`
+  - `void test_load_from_file_invalid_value_skipped();`
+  - `void test_load_from_file_unknown_key_silently_ignored();`
+  - `void test_settings_saved_signal_emitted();`
+
+### Step 5.2 — Implement `test_save_to_file_creates_json`
+
+- **File:** `test/backend/core/setting_manager_test.cpp`
+- **Action:** Write a test that:
+  1. Creates a `SettingsManager`, sets a few values (string, int, bool).
+  2. Calls `save_to_file()` with a temporary file path (use `QTemporaryDir` to get a clean path).
+  3. Verifies the file exists and was written.
+  4. Reads the file content and parses it as JSON.
+  5. Asserts the JSON is valid and contains the expected top-level keys (categories or `"General"` for unregistered keys).
+- **Analysis Reference:** Verification Checklist items 1, 4.
+
+### Step 5.3 — Implement `test_save_to_file_nested_keys`
+
+- **File:** `test/backend/core/setting_manager_test.cpp`
+- **Action:** Write a test that:
+  1. Sets values with `/` in their keys (e.g., `"editor/tab_size"`, `"editor/indent_style"`).
+  2. Saves to file.
+  3. Loads the JSON and verifies that keys are nested under their category with `/` creating hierarchy (e.g., `{ "General": { "editor": { "tab_size": 4 } } }`).
+- **Analysis Reference:** Verification Checklist item 3.
+
+### Step 5.4 — Implement `test_save_to_file_unregistered_keys_general_category`
+
+- **File:** `test/backend/core/setting_manager_test.cpp`
+- **Action:** Write a test that:
+  1. Sets values WITHOUT registering schemas for them.
+  2. Saves to file.
+  3. Verifies the JSON contains a `"General"` top-level key containing those unregistered keys.
+- **Analysis Reference:** Verification Checklist item 4.
+
+### Step 5.5 — Implement `test_save_to_file_dot_keys_not_split`
+
+- **File:** `test/backend/core/setting_manager_test.cpp`
+- **Action:** Write a test that:
+  1. Sets a value with `.` in the key (e.g., `"file.name"`).
+  2. Saves to file.
+  3. Verifies the key remains as a single flat key within its category — NOT split on `.`.
+- **Analysis Reference:** Verification Checklist item 2.
+
+### Step 5.6 — Implement `test_load_from_file_missing_returns_false`
+
+- **File:** `test/backend/core/setting_manager_test.cpp`
+- **Action:** Write a test that:
+  1. Creates a `SettingsManager` with some values set.
+  2. Calls `load_from_file()` with a non-existent file path.
+  3. Verifies it returns `false`.
+  4. Verifies `m_values` is unchanged (no modification on missing file).
+- **Analysis Reference:** Verification Checklist item 7.
+
+### Step 5.7 — Implement `test_load_from_file_malformed_json`
+
+- **File:** `test/backend/core/setting_manager_test.cpp`
+- **Action:** Write a test that:
+  1. Creates a temporary file containing invalid JSON (e.g., `{ broken json }`).
+  2. Calls `load_from_file()` with that path.
+  3. Verifies it returns `false`.
+  4. Verifies a warning was logged (check stderr or use QSignalSpy on qWarning if needed).
+- **Analysis Reference:** Verification Checklist item 8.
+
+### Step 5.8 — Implement `test_load_from_file_valid_replaces_values`
+
+- **File:** `test/backend/core/setting_manager_test.cpp`
+- **Action:** Write a test that:
+  1. Creates a `SettingsManager`, sets initial values.
+  2. Saves those values to a file.
+  3. Changes some values in memory.
+  4. Calls `load_from_file()` with the saved file.
+  5. Verifies all values are restored to what was saved (full replacement, no merge).
+- **Analysis Reference:** Verification Checklist item 5.
+
+### Step 5.9 — Implement `test_roundtrip_preserves_types`
+
+- **File:** `test/backend/core/setting_manager_test.cpp`
+- **Action:** Write a test that:
+  1. Creates a `SettingsManager`, sets values of all supported types (int, double, QString, bool).
+  2. Saves to file.
+  3. Clears the manager (or creates a new one).
+  4. Loads from the saved file.
+  5. Verifies each key/value pair matches exactly, including type (use `QVariant::type()` comparison).
+- **Analysis Reference:** Verification Checklist item 6.
+
+### Step 5.10 — Implement `test_load_from_file_invalid_value_skipped`
+
+- **File:** `test/backend/core/setting_manager_test.cpp`
+- **Action:** Write a test that:
+  1. Registers a schema with constraints (e.g., int between 1 and 32).
+  2. Manually writes a JSON file with one valid value and one invalid value (outside constraint range).
+  3. Calls `load_from_file()`.
+  4. Verifies the valid value is loaded and the invalid value is skipped.
+- **Analysis Reference:** Verification Checklist item 9.
+
+### Step 5.11 — Implement `test_load_from_file_unknown_key_silently_ignored`
+
+- **File:** `test/backend/core/setting_manager_test.cpp`
+- **Action:** Write a test that:
+  1. Registers only one schema key.
+  2. Manually writes a JSON file containing both the registered key and an unknown key (not in any schema).
+  3. Calls `load_from_file()`.
+  4. Verifies the registered key is loaded but the unknown key is NOT present in `m_values`.
+  5. Verifies no warning was emitted for the unknown key.
+- **Analysis Reference:** Verification Checklist item 10.
+
+### Step 5.12 — Implement `test_settings_saved_signal_emitted`
+
+- **File:** `test/backend/core/setting_manager_test.cpp`
+- **Action:** Write a test that:
+  1. Creates a `SettingsManager`, sets values, saves to file.
+  2. Uses `QSignalSpy` to monitor the `settingsSaved` signal.
+  3. Verifies the signal was emitted exactly once with the correct file path argument.
+- **Analysis Reference:** Verification Checklist item 11.
+
+**Validation Command:**
+```bash
+cmake --build --preset debug --target backend_core_test
 ctest --preset debug --output-on-failure
 ```
 
 ---
 
-## Phase 6 — Coverage Validation
+## Phase 6: Coverage Testing
 
-**References:** Prompt Instructions §3 (Test and Coverage), Analysis §4 (Verification Checklist)
+**References:** Project build instructions (Coverage section in workspace memory).
 
-**Goal:** Run tests with coverage instrumentation and verify adequate test coverage.
+### Step 6.1 — Build with coverage instrumentation
 
-### Step 6.1 — Build with Coverage
+- **Action:** Configure and build the coverage preset:
+  ```bash
+  cmake --preset debug-coverage
+  cmake --build --preset debug-coverage
+  ```
+- **Exit Criterion:** All targets build successfully with coverage flags (`--coverage`).
 
+### Step 6.2 — Run tests under coverage
+
+- **Action:** Execute the test binary from the coverage build directory:
+  ```bash
+  cd build/cmake-debug-coverage/test/backend/core
+  ./backend_core_test.exe
+  ```
+- **Exit Criterion:** All tests pass; `.profraw` files are generated in the build directory.
+
+### Step 6.3 — Merge profraw and generate coverage report
+
+- **Action:** Run the LLVM/MinGW coverage toolchain:
+  ```bash
+  llvm-profdata merge -o default.profdata *.profraw
+  llvm-cov show build/cmake-debug-coverage/test/backend/core/backend_core_test.exe -instr-profile=default.profdata
+  ```
+- **Exit Criterion:** Coverage report shows >90% branch coverage for `settings_manager.cpp` (new save/load code paths).
+
+**Validation Command:**
 ```bash
-cmake --preset debug-coverage
-cmake --build --preset debug --target dir2md_settings_test
+cmake --build --preset debug-coverage --target backend_core_test
+ctest --preset debug --test-dir build/cmake-debug-coverage --output-on-failure
 ```
-
-### Step 6.2 — Run Tests with Coverage
-
-```bash
-ctest --preset debug --output-on-failure
-```
-
-This will produce `.profraw` files in the build directory.
-
-### Step 6.3 — Merge and Report Coverage
-
-```bash
-llvm-profdata merge -o default.profdata *.profraw
-llvm-cov show build/cmake-debug-coverage/test/dir2md_settings_test.exe -instr-profile=default.profdata
-```
-
-**Exit Criterion:** Coverage report shows ≥80% line coverage for `settings_manager.cpp` and `core_schema.cpp`. All tests pass.
 
 ---
 
-## Phase 7 — Final Integration Verification
+## Phase 7: Integration Verification & Final Checks
 
-**References:** Analysis §4 (all verification checklist items), Prompt Instructions §1 (Clarifying Code vs. Pseudocode)
+**References:** Analysis Section 3 (Verification Checklist items 12-13), Analysis Section 1 (New Patterns — atomic write).
 
-**Goal:** End-to-end verification that the implementation is complete, correct, and buildable.
+### Step 7.1 — Verify anonymous namespace encapsulation
 
-### Step 7.1 — Full Build Verification
+- **Action:** Confirm that `insertNestedValue` and `flattenJsonObject` are not visible outside `settings_manager.cpp`:
+  - They are declared inside an anonymous namespace, so they have internal linkage by C++ rules.
+  - No declarations of these functions appear in any header file.
+- **Exit Criterion:** Code review confirms no external visibility; grep for function names returns matches only in `settings_manager.cpp`.
 
+### Step 7.2 — Verify QSaveFile atomic write behavior
+
+- **Action:** Confirm that `save_to_file` uses `QSaveFile` correctly:
+  - File is opened, written to, then committed.
+  - On commit failure, the temporary file is automatically removed by `QSaveFile`'s destructor (no partial/corrupt file left behind).
+- **Exit Criterion:** Code review confirms proper use of `QSaveFile` pattern; no direct `QFile::remove()` calls needed.
+
+### Step 7.3 — Full build verification across all presets
+
+- **Action:** Build and test all presets:
+  ```bash
+  cmake --build --preset debug
+  ctest --preset debug --output-on-failure
+  cmake --build --preset release
+  ```
+- **Exit Criterion:** All targets (backend, frontend, cli) build successfully in both Debug and Release modes; all tests pass.
+
+### Step 7.4 — Verify no regressions in existing functionality
+
+- **Action:** Run the full test suite including any existing tests that exercise `SettingsManager` get/set/schema APIs:
+  ```bash
+  ctest --preset debug --output-on-failure
+  ```
+- **Exit Criterion:** All pre-existing tests continue to pass; no new warnings or errors in diagnostics.
+
+**Validation Command:**
 ```bash
-cmake --preset debug
-cmake --build --preset debug --target all
+cmake --build --preset debug && ctest --preset debug --output-on-failure
+cmake --build --preset release
 ```
-
-**Exit Criterion:** Clean build with zero warnings related to the new code. No errors.
-
-### Step 7.2 — Run All Tests
-
-```bash
-ctest --preset debug --output-on-failure
-```
-
-**Exit Criterion:** All tests pass, including the new `dir2md_settings_test`.
-
-### Step 7.3 — Verify Anonymous Namespace Encapsulation
-
-Confirm that `insertNestedValue` and `flattenJsonObject` are not visible outside `settings_manager.cpp`:
-
-```bash
-grep -n "insertNestedValue\|flattenJsonObject" src/backend/core/settings_manager.hpp
-```
-
-**Exit Criterion:** No matches in the header file. Both functions exist only in the anonymous namespace of the .cpp file.
-
-### Step 7.4 — Code Convention Check
-
-- All new code uses **snake_case** for variables, methods, classes, namespaces.
-- All functions use **trailing return types**.
-- No `[[nodiscard]]` decorators added anywhere.
-
-**Exit Criterion:** Manual review confirms compliance.
 
 ---
 
-## Summary of Files to Modify/Create
+## Summary of Files Modified
 
-| File | Action | Phase |
-|---|---|---|
-| `src/backend/core/settings_manager.cpp` | Modify — add includes, anonymous namespace helpers, `save_to_file()`, `load_from_file()` | 1, 2, 3 |
-| `src/backend/core/settings_manager.hpp` | Modify — add `settingsSaved` signal | 2.2 |
-| `test/CMakeLists.txt` | Create — test target definition | 4.1 |
-| `CMakeLists.txt` (root) | Modify — add `add_subdirectory(test)` | 4.2 |
-| `test/settings_manager_test.cpp` | Create — comprehensive unit tests | 5 |
+| File | Change Type | Description |
+|------|-------------|-------------|
+| `src/backend/core/settings_manager.hpp` | Modify | Add `settingsSaved` signal |
+| `src/backend/core/settings_manager.cpp` | Modify | Add includes, anonymous namespace helpers, `save_to_file`, `load_from_file` |
+| `test/backend/core/setting_manager_test.hpp` | Modify | Add 10 new test method declarations |
+| `test/backend/core/setting_manager_test.cpp` | Modify | Implement 10 new test methods |
 
-**No changes required:** `core_schema.cpp`, `core_schema.hpp`, `src/backend/core/CMakeLists.txt`.
+## Summary of Files NOT Modified
 
----
-
-## Execution Order
-
-```
-Phase 1 (Helpers) → Phase 2 (save_to_file) → Phase 3 (load_from_file)
-    → Phase 4 (Test Infra) → Phase 5 (Unit Tests) → Phase 6 (Coverage) → Phase 7 (Final Verification)
-```
-
-Each phase must pass its exit criterion before proceeding to the next. Do not skip phases or combine them.
+| File | Reason |
+|------|--------|
+| `src/backend/core/CMakeLists.txt` | QJson/QSaveFile are part of Qt6::Core, already linked |
+| `src/backend/core/core_schema.cpp` | Schema definitions unchanged |
+| `src/backend/core/core_schema.hpp` | No schema changes needed |
+| `src/frontend/` | No UI changes required |
+| `src/cli/` | No CLI changes required |
