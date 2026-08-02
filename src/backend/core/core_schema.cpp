@@ -3,8 +3,8 @@
 
 namespace dir2md::backend {
 namespace {
-    inline const QString ToolPath  = "core/tool_path";
-    inline const QString MaxThreads = "core/max_threads";
+    inline const QString ToolPath  = "general/core/tool_path";
+    inline const QString MaxThreads = "performance/core/max_threads";
 }
 
 void CoreSchema::registerSchemas(SettingsManager &manager) {
@@ -12,7 +12,7 @@ void CoreSchema::registerSchemas(SettingsManager &manager) {
         ToolPath,
         "Tool Path",
         "Path to external execution binary.",
-        "General",
+        "general",
         "/usr/bin/tool",
         QMetaType::fromType<QString>()
     });
@@ -21,7 +21,7 @@ void CoreSchema::registerSchemas(SettingsManager &manager) {
         MaxThreads,
         "Max Worker Threads",
         "Maximum worker threads for processing tasks.",
-        "Performance",
+        "performance",
         4,
         QMetaType::fromType<int>(),
         1.0,  // min

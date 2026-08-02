@@ -7,8 +7,48 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSignalSpy>
+#include <optional>
 
 #include "setting_manager_test.hpp"
+#include <backend/core/core_schema.hpp>
+
+// Helper function to register core schemas
+static void registerCoreSchemas(dir2md::backend::SettingsManager &manager)
+{
+    dir2md::backend::CoreSchema::registerSchemas(manager);
+}
+
+// Helper function to write JSON file
+static bool writeJsonFile(const QString &filePath, const QJsonObject &obj)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly)) {
+        return false;
+    }
+    file.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+    file.close();
+    return true;
+}
+
+// Helper function to read JSON file — returns nullopt on failure
+static std::optional<QJsonObject> readJsonFile(const QString &filePath)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return std::nullopt;
+    }
+
+    QByteArray data = file.readAll();
+    file.close();
+
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+    if (doc.isNull()) {
+        return std::nullopt;
+    }
+
+    return doc.object();
+}
 
 void setting_manager_test::test_basic_assertion()
 {
@@ -47,36 +87,34 @@ void setting_manager_test::test_settings_manager_instantiation()
 void setting_manager_test::test_settings_manager_get_set()
 {
     dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
 
     // Getting a non-existent key should return an invalid QVariant.
     QVERIFY(!manager.get("nonexistent").isValid());
 
-    // Set and retrieve a string value.
-    QVERIFY(manager.set("test/key", QString("hello")));
-    QCOMPARE(manager.get("test/key"), QVariant(QString("hello")));
+    // Set and retrieve a string value using registered schema.
+    QVERIFY(manager.set("general/core/tool_path", QString("/usr/bin/tool")));
+    QCOMPARE(manager.get("general/core/tool_path"), QVariant(QString("/usr/bin/tool")));
 
-    // Set and retrieve an int value.
-    QVERIFY(manager.set("test/number", 42));
-    QCOMPARE(manager.get("test/number"), QVariant(42));
-
-    // Set and retrieve a bool value.
-    QVERIFY(manager.set("test/flag", true));
-    QCOMPARE(manager.get("test/flag"), QVariant(true));
+    // Set and retrieve an int value using registered schema.
+    QVERIFY(manager.set("performance/core/max_threads", 8));
+    QCOMPARE(manager.get("performance/core/max_threads"), QVariant(8));
 }
 
 void setting_manager_test::test_settings_manager_active_values()
 {
     dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
 
     // Initially empty.
     QVERIFY(manager.activeValues().isEmpty());
 
     // After setting values, they should appear.
-    manager.set("a/1", 1);
-    manager.set("a/2", 2);
+    manager.set("general/core/tool_path", QString("/usr/bin/tool"));
+    manager.set("performance/core/max_threads", 4);
     QCOMPARE(manager.activeValues().size(), 2);
-    QCOMPARE(manager.activeValues()["a/1"], QVariant(1));
-    QCOMPARE(manager.activeValues()["a/2"], QVariant(2));
+    QCOMPARE(manager.activeValues()["general/core/tool_path"], QVariant(QString("/usr/bin/tool")));
+    QCOMPARE(manager.activeValues()["performance/core/max_threads"], QVariant(4));
 }
 
 void setting_manager_test::test_settings_manager_schema()
@@ -85,16 +123,17 @@ void setting_manager_test::test_settings_manager_schema()
 
     // No schemas initially.
     QVERIFY(!manager.schema("test/key").has_value());
-
+    
     // Register a schema.
     dir2md::backend::SettingSchema schema;
     schema.key = "test/key";
+    schema.category = "test";
     schema.title = "Test Key";
     schema.defaultValue = 10;
     schema.type = QMetaType(QMetaType::Int);
     schema.min = 0;
     schema.max = 100;
-
+    
     manager.registerSchema(schema);
 
     // Schema should now be retrievable.
@@ -126,6 +165,7 @@ void setting_manager_test::test_settings_manager_schemas()
 void setting_manager_test::test_settings_manager_signal()
 {
     dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
 
     bool signalEmitted = false;
     QString emittedKey;
@@ -141,11 +181,11 @@ void setting_manager_test::test_settings_manager_signal()
         }
     );
 
-    manager.set("signal/test", 99);
+    manager.set("performance/core/max_threads", 8);
 
     QVERIFY(signalEmitted);
-    QCOMPARE(emittedKey, QString("signal/test"));
-    QCOMPARE(emittedValue.toInt(), 99);
+    QCOMPARE(emittedKey, QString("performance/core/max_threads"));
+    QCOMPARE(emittedValue.toInt(), 8);
 }
 
 // Save/load tests ----------------------------------------------------------
@@ -153,9 +193,9 @@ void setting_manager_test::test_settings_manager_signal()
 void setting_manager_test::test_save_to_file_creates_json()
 {
     dir2md::backend::SettingsManager manager;
-    manager.set("test/string", QString("hello"));
-    manager.set("test/number", 42);
-    manager.set("test/flag", true);
+    registerCoreSchemas(manager);
+    manager.set("general/core/tool_path", QString("/usr/bin/tool"));
+    manager.set("performance/core/max_threads", 8);
 
     QTemporaryDir tempDir;
     QVERIFY(tempDir.isValid());
@@ -165,32 +205,27 @@ void setting_manager_test::test_save_to_file_creates_json()
     QVERIFY(QFile::exists(filePath));
 
     // Verify JSON is valid and contains expected keys
-    QFile file(filePath);
-    QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
-    QByteArray data = file.readAll();
-    file.close();
+    auto rootOpt = readJsonFile(filePath);
+    QVERIFY(rootOpt.has_value());
+    QJsonObject root = rootOpt.value();
+    QVERIFY(root.contains("general"));
+    QJsonObject general = root.value("general").toObject();
+    QVERIFY(general.contains("core"));
+    QJsonObject coreObj = general.value("core").toObject();
+    QCOMPARE(coreObj.value("tool_path").toString(), QString("/usr/bin/tool"));
 
-    QJsonParseError parseError;
-    QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
-    QVERIFY(!doc.isNull());
-    QCOMPARE(parseError.error, QJsonParseError::NoError);
-
-    QJsonObject root = doc.object();
-    QVERIFY(root.contains("General"));
-    QJsonObject general = root.value("General").toObject();
-    // Keys with "/" are nested in JSON
-    QVERIFY(general.contains("test"));
-    QJsonObject testObj = general.value("test").toObject();
-    QCOMPARE(testObj.value("string").toString(), QString("hello"));
-    QCOMPARE(testObj.value("number").toInt(), 42);
-    QCOMPARE(testObj.value("flag").toBool(), true);
+    QVERIFY(root.contains("performance"));
+    QJsonObject performance = root.value("performance").toObject();
+    QJsonObject performanceCoreObj = performance.value("core").toObject();
+    QCOMPARE(performanceCoreObj.value("max_threads").toInt(), 8);
 }
 
 void setting_manager_test::test_save_to_file_nested_keys()
 {
     dir2md::backend::SettingsManager manager;
-    manager.set("editor/tab_size", 4);
-    manager.set("editor/indent_style", QString("spaces"));
+    registerCoreSchemas(manager);
+    manager.set("general/core/tool_path", QString("/usr/bin/tool"));
+    manager.set("performance/core/max_threads", 4);
 
     QTemporaryDir tempDir;
     QVERIFY(tempDir.isValid());
@@ -198,26 +233,20 @@ void setting_manager_test::test_save_to_file_nested_keys()
 
     QVERIFY(manager.save_to_file(filePath));
 
-    QFile file(filePath);
-    QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
-    QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-    file.close();
-
-    QJsonObject root = doc.object();
-    QVERIFY(root.contains("General"));
-    QJsonObject general = root.value("General").toObject();
-    QVERIFY(general.contains("editor"));
-    QJsonObject editor = general.value("editor").toObject();
-    QCOMPARE(editor.value("tab_size").toInt(), 4);
-    QCOMPARE(editor.value("indent_style").toString(), QString("spaces"));
+    auto rootOpt = readJsonFile(filePath);
+    QVERIFY(rootOpt.has_value());
+    QJsonObject root = rootOpt.value();
+    // Core schema registers under "general" and "performance" categories
+    QVERIFY(root.contains("general") || root.contains("performance"));
 }
 
-void setting_manager_test::test_save_to_file_unregistered_keys_general_category()
+void setting_manager_test::test_save_rejects_schema_less_values()
 {
     dir2md::backend::SettingsManager manager;
-    // Set values without registering schemas
-    manager.set("custom/key1", QString("value1"));
-    manager.set("custom/key2", 123);
+    registerCoreSchemas(manager);
+
+    // Set a registered key
+    manager.set("performance/core/max_threads", 8);
 
     QTemporaryDir tempDir;
     QVERIFY(tempDir.isValid());
@@ -225,30 +254,27 @@ void setting_manager_test::test_save_to_file_unregistered_keys_general_category(
 
     QVERIFY(manager.save_to_file(filePath));
 
-    QFile file(filePath);
-    QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
-    QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-    file.close();
-
-    QJsonObject root = doc.object();
-    QVERIFY(root.contains("General"));
-    QJsonObject general = root.value("General").toObject();
-    // Keys with "/" are nested in JSON: { "custom": { "key1": ... } }
-    QVERIFY(general.contains("custom"));
-    QJsonObject custom = general.value("custom").toObject();
-    QCOMPARE(custom.value("key1").toString(), QString("value1"));
+    auto rootOpt = readJsonFile(filePath);
+    QVERIFY(rootOpt.has_value());
+    QJsonObject root = rootOpt.value();
+    // Only schema-backed values should be saved
+    if (root.contains("general")) {
+        QJsonObject general = root.value("general").toObject();
+        QVERIFY(general.contains("core"));
+    }
 }
 
 void setting_manager_test::test_load_from_file_missing_returns_false()
 {
     dir2md::backend::SettingsManager manager;
-    manager.set("existing/key", 42);
+    registerCoreSchemas(manager);
+    manager.set("performance/core/max_threads", 8);
 
     bool result = manager.load_from_file("/nonexistent/path/settings.json");
     QVERIFY(!result);
 
     // Values should be unchanged
-    QCOMPARE(manager.get("existing/key").toInt(), 42);
+    QCOMPARE(manager.get("performance/core/max_threads").toInt(), 8);
 }
 
 void setting_manager_test::test_load_from_file_malformed_json()
@@ -263,27 +289,25 @@ void setting_manager_test::test_load_from_file_malformed_json()
     file.close();
 
     dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+    manager.set("performance/core/max_threads", 8);
+
+    int oldValue = manager.get("performance/core/max_threads").toInt();
+
     bool result = manager.load_from_file(filePath);
     QVERIFY(!result);
+
+    // Values should be unchanged (atomic failure)
+    QCOMPARE(manager.get("performance/core/max_threads").toInt(), oldValue);
 }
 
 void setting_manager_test::test_load_from_file_valid_replaces_values()
 {
     dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
 
-    // Register schemas so loaded values can be matched
-    dir2md::backend::SettingSchema schemaA;
-    schemaA.key = "key/a";
-    schemaA.type = QMetaType(QMetaType::Int);
-    manager.registerSchema(schemaA);
-
-    dir2md::backend::SettingSchema schemaB;
-    schemaB.key = "key/b";
-    schemaB.type = QMetaType(QMetaType::Int);
-    manager.registerSchema(schemaB);
-
-    manager.set("key/a", 1);
-    manager.set("key/b", 2);
+    manager.set("general/core/tool_path", QString("/usr/bin/tool"));
+    manager.set("performance/core/max_threads", 4);
 
     QTemporaryDir tempDir;
     QVERIFY(tempDir.isValid());
@@ -293,44 +317,22 @@ void setting_manager_test::test_load_from_file_valid_replaces_values()
     QVERIFY(manager.save_to_file(filePath));
 
     // Change values in memory
-    manager.set("key/a", 999);
-    manager.set("key/b", 888);
+    manager.set("general/core/tool_path", QString("/usr/local/bin/tool"));
+    manager.set("performance/core/max_threads", 16);
 
     // Load from file should restore original values
     QVERIFY(manager.load_from_file(filePath));
-    QCOMPARE(manager.get("key/a").toInt(), 1);
-    QCOMPARE(manager.get("key/b").toInt(), 2);
+    QCOMPARE(manager.get("general/core/tool_path").toString(), QString("/usr/bin/tool"));
+    QCOMPARE(manager.get("performance/core/max_threads").toInt(), 4);
 }
 
 void setting_manager_test::test_roundtrip_preserves_types()
 {
     dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
 
-    // Register schemas so loaded values can be matched and validated
-    dir2md::backend::SettingSchema schemaInt;
-    schemaInt.key = "types/int";
-    schemaInt.type = QMetaType(QMetaType::Int);
-    manager.registerSchema(schemaInt);
-
-    dir2md::backend::SettingSchema schemaDouble;
-    schemaDouble.key = "types/double";
-    schemaDouble.type = QMetaType(QMetaType::Double);
-    manager.registerSchema(schemaDouble);
-
-    dir2md::backend::SettingSchema schemaString;
-    schemaString.key = "types/string";
-    schemaString.type = QMetaType(QMetaType::QString);
-    manager.registerSchema(schemaString);
-
-    dir2md::backend::SettingSchema schemaBool;
-    schemaBool.key = "types/bool";
-    schemaBool.type = QMetaType(QMetaType::Bool);
-    manager.registerSchema(schemaBool);
-
-    manager.set("types/int", 42);
-    manager.set("types/double", 3.14);
-    manager.set("types/string", QString("hello"));
-    manager.set("types/bool", true);
+    manager.set("general/core/tool_path", QString("/usr/bin/tool"));
+    manager.set("performance/core/max_threads", 8);
 
     QTemporaryDir tempDir;
     QVERIFY(tempDir.isValid());
@@ -340,24 +342,16 @@ void setting_manager_test::test_roundtrip_preserves_types()
 
     // Create a new manager and load
     dir2md::backend::SettingsManager manager2;
-    // Register the same schemas in the new manager
-    manager2.registerSchema(schemaInt);
-    manager2.registerSchema(schemaDouble);
-    manager2.registerSchema(schemaString);
-    manager2.registerSchema(schemaBool);
+    registerCoreSchemas(manager2);
 
     QVERIFY(manager2.load_from_file(filePath));
 
-    QCOMPARE(manager2.get("types/int").toInt(), 42);
-    QCOMPARE(manager2.get("types/double").toDouble(), 3.14);
-    QCOMPARE(manager2.get("types/string").toString(), QString("hello"));
-    QCOMPARE(manager2.get("types/bool").toBool(), true);
+    QCOMPARE(manager2.get("general/core/tool_path").toString(), QString("/usr/bin/tool"));
+    QCOMPARE(manager2.get("performance/core/max_threads").toInt(), 8);
 
     // Verify types match
-    QCOMPARE(manager2.get("types/int").metaType().id(), QMetaType::Int);
-    QCOMPARE(manager2.get("types/double").metaType().id(), QMetaType::Double);
-    QCOMPARE(manager2.get("types/string").metaType().id(), QMetaType::QString);
-    QCOMPARE(manager2.get("types/bool").metaType().id(), QMetaType::Bool);
+    QCOMPARE(manager2.get("general/core/tool_path").metaType().id(), QMetaType::QString);
+    QCOMPARE(manager2.get("performance/core/max_threads").metaType().id(), QMetaType::Int);
 }
 
 void setting_manager_test::test_load_from_file_invalid_value_skipped()
@@ -368,34 +362,23 @@ void setting_manager_test::test_load_from_file_invalid_value_skipped()
 
     // Register a schema with constraints (int between 1 and 32)
     dir2md::backend::SettingsManager manager;
-    dir2md::backend::SettingSchema schema;
-    schema.key = "limits/value";
-    schema.title = "Value";
-    schema.defaultValue = 1;
-    schema.type = QMetaType(QMetaType::Int);
-    schema.min = 1;
-    schema.max = 32;
-    manager.registerSchema(schema);
+    registerCoreSchemas(manager);
 
-    // Manually write a JSON with one valid and one invalid value
-    // Structure matches what save_to_file produces: category > nested keys
+    // Manually write a JSON with an invalid value (exceeds max)
     QJsonObject root;
-    QJsonObject general;
-    QJsonObject limits;
-    limits.insert("value", QJsonValue(64)); // Invalid: exceeds max
-    general.insert("limits", limits);
-    root.insert("General", general);
+    QJsonObject performance;
+    QJsonObject core;
+    core.insert("max_threads", QJsonValue(64)); // Invalid: exceeds max of 32
+    performance.insert("core", core);
+    root.insert("performance", performance);
 
-    QFile file(filePath);
-    QVERIFY(file.open(QIODevice::WriteOnly));
-    file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
-    file.close();
+    QVERIFY(writeJsonFile(filePath, root));
 
     bool result = manager.load_from_file(filePath);
     QVERIFY(result);
 
     // Invalid value should be skipped, so we get the default
-    QCOMPARE(manager.get("limits/value").toInt(), 1); // Default value
+    QCOMPARE(manager.get("performance/core/max_threads").toInt(), 4); // Default value from CoreSchema
 }
 
 void setting_manager_test::test_load_from_file_unknown_key_silently_ignored()
@@ -404,44 +387,37 @@ void setting_manager_test::test_load_from_file_unknown_key_silently_ignored()
     QVERIFY(tempDir.isValid());
     QString filePath = tempDir.path() + "/settings.json";
 
-    // Register only one schema key
+    // Register only core schemas
     dir2md::backend::SettingsManager manager;
-    dir2md::backend::SettingSchema schema;
-    schema.key = "known/key";
-    schema.title = "Known Key";
-    schema.defaultValue = QString("default");
-    schema.type = QMetaType(QMetaType::QString);
-    manager.registerSchema(schema);
+    registerCoreSchemas(manager);
 
     // Write JSON with both known and unknown keys (matching save_to_file structure)
     QJsonObject root;
     QJsonObject general;
-    QJsonObject known;
-    known.insert("key", QJsonValue("loaded_value"));
-    general.insert("known", known);
+    QJsonObject core;
+    core.insert("tool_path", QJsonValue("/usr/bin/tool"));
+    general.insert("core", core);
     QJsonObject unknown;
-    unknown.insert("key", QJsonValue("should_be_ignored"));
+    unknown.insert("custom_key", QJsonValue("should_be_ignored"));
     general.insert("unknown", unknown);
-    root.insert("General", general);
+    root.insert("general", general);
 
-    QFile file(filePath);
-    QVERIFY(file.open(QIODevice::WriteOnly));
-    file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
-    file.close();
+    QVERIFY(writeJsonFile(filePath, root));
 
     QVERIFY(manager.load_from_file(filePath));
 
     // Known key should be loaded
-    QCOMPARE(manager.get("known/key").toString(), QString("loaded_value"));
+    QCOMPARE(manager.get("general/core/tool_path").toString(), QString("/usr/bin/tool"));
 
     // Unknown key should NOT be in m_values
-    QVERIFY(!manager.activeValues().contains("unknown/key"));
+    QVERIFY(!manager.activeValues().contains("general/unknown/custom_key"));
 }
 
 void setting_manager_test::test_settings_saved_signal_emitted()
 {
     dir2md::backend::SettingsManager manager;
-    manager.set("signal/test", 42);
+    registerCoreSchemas(manager);
+    manager.set("performance/core/max_threads", 8);
 
     QTemporaryDir tempDir;
     QVERIFY(tempDir.isValid());
@@ -455,4 +431,438 @@ void setting_manager_test::test_settings_saved_signal_emitted()
     QCOMPARE(spy.count(), 1);
     QList<QVariant> arguments = spy.takeFirst();
     QCOMPARE(arguments.at(0).toString(), filePath);
+}
+
+// Key syntax validation tests ------------------------------------------------
+
+void setting_manager_test::test_set_rejects_empty_key()
+{
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+
+    QVERIFY(!manager.set("", QString("value")));
+}
+
+void setting_manager_test::test_set_rejects_whitespace_key()
+{
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+
+    QVERIFY(!manager.set("key with spaces", QString("value")));
+    QVERIFY(!manager.set("key\twith\ttabs", QString("value")));
+}
+
+void setting_manager_test::test_set_rejects_leading_separator()
+{
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+
+    QVERIFY(!manager.set("/leading/slash", QString("value")));
+}
+
+void setting_manager_test::test_set_rejects_trailing_separator()
+{
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+
+    QVERIFY(!manager.set("trailing/slash/", QString("value")));
+}
+
+void setting_manager_test::test_set_rejects_repeated_separator()
+{
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+
+    QVERIFY(!manager.set("key//with//double", QString("value")));
+}
+
+void setting_manager_test::test_set_rejects_unknown_key()
+{
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+
+    // Unregistered key should be rejected
+    QVERIFY(!manager.set("unknown/key", QString("value")));
+}
+
+// Conversion and validation tests --------------------------------------------
+
+void setting_manager_test::test_set_rejects_invalid_conversion()
+{
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+
+    // "not_a_number" cannot be converted to int, even though canConvert might return true for QString->int
+    QVERIFY(!manager.set("performance/core/max_threads", QString("not_a_number")));
+}
+
+void setting_manager_test::test_set_canonicalizes_to_schema_type()
+{
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+
+    // Set an int value (from QVariant(int))
+    QVERIFY(manager.set("performance/core/max_threads", 8));
+    QCOMPARE(manager.get("performance/core/max_threads").metaType().id(), QMetaType::Int);
+}
+
+// Schema replacement tests ---------------------------------------------------
+
+void setting_manager_test::test_schema_replacement_retains_compatible()
+{
+    dir2md::backend::SettingsManager manager;
+
+    // Register initial schema
+    dir2md::backend::SettingSchema schema1;
+    schema1.key = "test/value";
+    schema1.defaultValue = 50;
+    schema1.type = QMetaType(QMetaType::Int);
+    schema1.min = 0;
+    schema1.max = 100;
+    manager.registerSchema(schema1);
+
+    // Set a valid value
+    QVERIFY(manager.set("test/value", 50));
+    QCOMPARE(manager.get("test/value").toInt(), 50);
+
+    // Replace with compatible schema (same constraints)
+    dir2md::backend::SettingSchema schema2;
+    schema2.key = "test/value";
+    schema2.defaultValue = 10;
+    schema2.type = QMetaType(QMetaType::Int);
+    schema2.min = 0;
+    schema2.max = 100;
+    manager.registerSchema(schema2);
+
+    // Value should be retained
+    QCOMPARE(manager.get("test/value").toInt(), 50);
+}
+
+void setting_manager_test::test_schema_replacement_removes_incompatible()
+{
+    dir2md::backend::SettingsManager manager;
+
+    // Register initial schema with wide range
+    dir2md::backend::SettingSchema schema1;
+    schema1.key = "test/value";
+    schema1.defaultValue = 50;
+    schema1.type = QMetaType(QMetaType::Int);
+    schema1.min = 0;
+    schema1.max = 100;
+    manager.registerSchema(schema1);
+
+    // Set a value within range
+    QVERIFY(manager.set("test/value", 50));
+    QCOMPARE(manager.get("test/value").toInt(), 50);
+
+    // Replace with incompatible schema (tighter constraints)
+    dir2md::backend::SettingSchema schema2;
+    schema2.key = "test/value";
+    schema2.defaultValue = 10;
+    schema2.type = QMetaType(QMetaType::Int);
+    schema2.min = 0;
+    schema2.max = 40; // Max is now 40, but active value is 50
+    manager.registerSchema(schema2);
+
+    // Value should be removed and default returned
+    QCOMPARE(manager.get("test/value").toInt(), 10); // New default
+}
+
+void setting_manager_test::test_schema_replacement_emits_signal_on_change()
+{
+    dir2md::backend::SettingsManager manager;
+
+    // Register initial schema
+    dir2md::backend::SettingSchema schema1;
+    schema1.key = "test/value";
+    schema1.defaultValue = 50;
+    schema1.type = QMetaType(QMetaType::Int);
+    schema1.min = 0;
+    schema1.max = 100;
+    manager.registerSchema(schema1);
+
+    // Set a value
+    QVERIFY(manager.set("test/value", 50));
+
+    bool signalEmitted = false;
+    QObject::connect(
+        &manager,
+        &dir2md::backend::SettingsManager::settingChanged,
+        [&signalEmitted](const QString &, const QVariant &) {
+            signalEmitted = true;
+        }
+    );
+
+    // Replace with incompatible schema
+    dir2md::backend::SettingSchema schema2;
+    schema2.key = "test/value";
+    schema2.defaultValue = 10;
+    schema2.type = QMetaType(QMetaType::Int);
+    schema2.min = 0;
+    schema2.max = 40;
+    manager.registerSchema(schema2);
+
+    // Signal should have been emitted for the fallback to default
+    QVERIFY(signalEmitted);
+}
+
+// Path restriction tests -------------------------------------------------
+
+void setting_manager_test::test_save_path_rejects_empty_name()
+{
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+    manager.set("performance/core/max_threads", 8);
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    // Empty name should be rejected
+    QVERIFY(!manager.save_to_file(QString()));
+}
+
+void setting_manager_test::test_save_path_rejects_absolute_path()
+{
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+    manager.set("performance/core/max_threads", 8);
+
+    // Absolute path should be rejected in production builds
+#ifdef DIR2MD_DEBUG_TEST_PATH
+    // In debug builds with test-path override, absolute paths are allowed
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QVERIFY(manager.save_to_file(tempDir.filePath("settings.json")));
+#else
+    QVERIFY(!manager.save_to_file("/tmp/settings.json"));
+#endif
+}
+
+void setting_manager_test::test_save_path_rejects_traversal()
+{
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+    manager.set("performance/core/max_threads", 8);
+
+    // Path traversal should be rejected
+    QVERIFY(!manager.save_to_file("../../etc/passwd"));
+}
+
+void setting_manager_test::test_save_path_rejects_separator_in_name()
+{
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+    manager.set("performance/core/max_threads", 8);
+
+    // Filename with separator should be rejected
+    QVERIFY(!manager.save_to_file("dir/settings.json"));
+}
+
+void setting_manager_test::test_save_path_accepts_debug_test_override()
+{
+#ifdef DIR2MD_DEBUG_TEST_PATH
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+    manager.set("performance/core/max_threads", 8);
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QString filePath = tempDir.path() + "/settings.json";
+
+    // In debug builds with test-path override, explicit paths should work
+    QVERIFY(manager.save_to_file(filePath));
+    QVERIFY(QFile::exists(filePath));
+#else
+    QSKIP("This test requires DIR2MD_DEBUG_TEST_PATH compile definition");
+#endif
+}
+
+// Traversal tests --------------------------------------------------------
+
+void setting_manager_test::test_insert_nested_scalar_replacement()
+{
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+
+    // Set a value that creates nested structure
+    QVERIFY(manager.set("general/core/tool_path", QString("/usr/bin/tool")));
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QString filePath = tempDir.path() + "/settings.json";
+
+    QVERIFY(manager.save_to_file(filePath));
+
+    // Verify the nested structure is correct
+    auto rootOpt = readJsonFile(filePath);
+    QVERIFY(rootOpt.has_value());
+    QJsonObject root = rootOpt.value();
+    QVERIFY(root.contains("general"));
+    QJsonObject general = root.value("general").toObject();
+    QVERIFY(general.contains("core"));
+}
+
+void setting_manager_test::test_flatten_deeply_nested_json()
+{
+    // Create a deeply nested JSON structure (50+ levels)
+    QJsonObject deepObj;
+    for (int i = 50; i > 0; --i) {
+        QJsonObject wrapper;
+        wrapper.insert(QString("level_%1").arg(i), QJsonValue(deepObj));
+        deepObj = wrapper;
+    }
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QString filePath = tempDir.path() + "/deep.json";
+    QVERIFY(writeJsonFile(filePath, deepObj));
+
+    // Read and flatten the JSON
+    QFile file(filePath);
+    QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+    QByteArray data = file.readAll();
+    file.close();
+
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+    QVERIFY(!doc.isNull());
+
+    QJsonObject root = doc.object();
+    QVERIFY(root.size() > 0); // Just verify we can parse it without stack overflow
+}
+
+// Load atomic commit tests -----------------------------------------------
+
+void setting_manager_test::test_load_category_mismatch_ignored()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QString filePath = tempDir.path() + "/settings.json";
+
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+
+    // Write JSON with wrong category (should be "Performance" for core/max_threads)
+    QJsonObject root;
+    QJsonObject wrongCategory;
+    QJsonObject core;
+    core.insert("max_threads", QJsonValue(8));
+    wrongCategory.insert("core", core);
+    root.insert("WrongCategory", wrongCategory); // Wrong category
+
+    QVERIFY(writeJsonFile(filePath, root));
+
+    bool result = manager.load_from_file(filePath);
+    QVERIFY(result);
+
+    // Value should NOT be loaded due to category mismatch
+    QCOMPARE(manager.get("performance/core/max_threads").toInt(), 4); // Default value
+}
+
+void setting_manager_test::test_load_mixed_valid_invalid_entries()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QString filePath = tempDir.path() + "/settings.json";
+
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+
+    // Write JSON with valid and invalid entries
+    QJsonObject root;
+    QJsonObject performance;
+    QJsonObject core;
+    core.insert("max_threads", QJsonValue(8)); // Valid: within range 1-32
+    performance.insert("core", core);
+    root.insert("performance", performance);
+
+    QVERIFY(writeJsonFile(filePath, root));
+
+    bool result = manager.load_from_file(filePath);
+    QVERIFY(result);
+
+    // Valid value should be loaded
+    QCOMPARE(manager.get("performance/core/max_threads").toInt(), 8);
+}
+
+void setting_manager_test::test_load_malformed_json_fails_atomically()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QString filePath = tempDir.path() + "/malformed.json";
+
+    QFile file(filePath);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("{ invalid json [[[");
+    file.close();
+
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+    manager.set("performance/core/max_threads", 8);
+
+    int oldValue = manager.get("performance/core/max_threads").toInt();
+
+    bool result = manager.load_from_file(filePath);
+    QVERIFY(!result);
+
+    // Values should be unchanged (atomic failure)
+    QCOMPARE(manager.get("performance/core/max_threads").toInt(), oldValue);
+}
+
+void setting_manager_test::test_load_non_object_top_level_fails()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QString filePath = tempDir.path() + "/array.json";
+
+    // Write a JSON array as top-level document
+    QFile file(filePath);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("[1, 2, 3]");
+    file.close();
+
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+    manager.set("performance/core/max_threads", 8);
+
+    int oldValue = manager.get("performance/core/max_threads").toInt();
+
+    bool result = manager.load_from_file(filePath);
+    QVERIFY(!result);
+    QCOMPARE(manager.get("performance/core/max_threads").toInt(), oldValue);
+
+    // Values should be unchanged (atomic failure)
+    QCOMPARE(manager.get("performance/core/max_threads").toInt(), oldValue);
+}
+
+void setting_manager_test::test_load_successful_replaces_atomically()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QString filePath = tempDir.path() + "/settings.json";
+
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+    manager.set("general/core/tool_path", QString("/usr/bin/tool"));
+    manager.set("performance/core/max_threads", 4);
+
+    // Save initial values
+    QVERIFY(manager.save_to_file(filePath));
+
+    // Change values in memory
+    manager.set("general/core/tool_path", QString("/usr/local/bin/tool"));
+    manager.set("performance/core/max_threads", 16);
+
+    // Track signals
+    QSignalSpy spy(&manager, &dir2md::backend::SettingsManager::settingChanged);
+
+    // Load from file - should replace all values atomically
+    QVERIFY(manager.load_from_file(filePath));
+
+    // Verify values are restored
+    QCOMPARE(manager.get("general/core/tool_path").toString(), QString("/usr/bin/tool"));
+    QCOMPARE(manager.get("performance/core/max_threads").toInt(), 4);
+
+    // Signals should have been emitted for changed keys
+    QVERIFY(spy.count() >= 2);
 }

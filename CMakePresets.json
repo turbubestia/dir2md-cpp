@@ -18,7 +18,8 @@
             "inherits": "base",
             "binaryDir": "${sourceDir}/build/cmake-debug",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug"
+                "CMAKE_BUILD_TYPE": "Debug",
+                "DIR2MD_DEBUG_TEST_PATH": "ON"
             }
         },
         {

@@ -18,6 +18,7 @@ set_target_properties(backend_core_test PROPERTIES
     CXX_STANDARD_REQUIRED ON
 )
 
+
 # Register tests with CTest + VS Code Test Explorer integration.
 include(${CMAKE_SOURCE_DIR}/cmake/qtest_add_test.cmake)
 qtest_add_test(

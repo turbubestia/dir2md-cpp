@@ -2,12 +2,13 @@
 #pragma once
 
 #include <exception>
+#include <stdexcept>
 #include <string>
 
 #define RUNTIME_ASSERT(condition)                                                       \
     do {                                                                                \
         if (!(condition)) {                                                             \
-            throw std::exception("RUNTIME_ASSERT failed: " #condition);                 \
+            throw std::runtime_error("RUNTIME_ASSERT failed: " #condition);                 \
         }                                                                               \
     } while (0)
 
@@ -15,7 +16,7 @@
 #define DEBUG_ASSERT(condition)                                                         \
     do {                                                                                \
         if (!(condition)) {                                                             \
-            throw std::exception("DEBUG_ASSERT failed: " #condition);                   \
+            throw std::runtime_error("DEBUG_ASSERT failed: " #condition);                   \
         }                                                                               \
     } while (0)
 #else

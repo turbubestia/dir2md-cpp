@@ -23,26 +23,39 @@ private slots:
     // Test that SettingsManager can be instantiated (integration POC).
     void test_settings_manager_instantiation();
 
-    // Test SettingsManager get/set without schemas (basic value store).
+    // Key syntax validation tests --------------------------------------------
+
+    void test_set_rejects_empty_key();
+    void test_set_rejects_whitespace_key();
+    void test_set_rejects_leading_separator();
+    void test_set_rejects_trailing_separator();
+    void test_set_rejects_repeated_separator();
+    void test_set_rejects_unknown_key();
+
+    // Schema-backed set/get tests --------------------------------------------
+
     void test_settings_manager_get_set();
-
-    // Test SettingsManager activeValues() returns stored values.
     void test_settings_manager_active_values();
-
-    // Test SettingsManager schema registration and retrieval.
     void test_settings_manager_schema();
-
-    // Test SettingsManager schemas() returns all registered schemas.
     void test_settings_manager_schemas();
-
-    // Test SettingsManager signal emission on set.
     void test_settings_manager_signal();
+
+    // Conversion and validation tests ----------------------------------------
+
+    void test_set_rejects_invalid_conversion();
+    void test_set_canonicalizes_to_schema_type();
+
+    // Schema replacement tests -----------------------------------------------
+
+    void test_schema_replacement_retains_compatible();
+    void test_schema_replacement_removes_incompatible();
+    void test_schema_replacement_emits_signal_on_change();
 
     // Save/load tests --------------------------------------------------------
 
     void test_save_to_file_creates_json();
     void test_save_to_file_nested_keys();
-    void test_save_to_file_unregistered_keys_general_category();
+    void test_save_rejects_schema_less_values();
     void test_load_from_file_missing_returns_false();
     void test_load_from_file_malformed_json();
     void test_load_from_file_valid_replaces_values();
@@ -50,4 +63,25 @@ private slots:
     void test_load_from_file_invalid_value_skipped();
     void test_load_from_file_unknown_key_silently_ignored();
     void test_settings_saved_signal_emitted();
+
+    // Path restriction tests -------------------------------------------------
+
+    void test_save_path_rejects_empty_name();
+    void test_save_path_rejects_absolute_path();
+    void test_save_path_rejects_traversal();
+    void test_save_path_rejects_separator_in_name();
+    void test_save_path_accepts_debug_test_override();
+
+    // Traversal tests --------------------------------------------------------
+
+    void test_insert_nested_scalar_replacement();
+    void test_flatten_deeply_nested_json();
+
+    // Load atomic commit tests -----------------------------------------------
+
+    void test_load_category_mismatch_ignored();
+    void test_load_mixed_valid_invalid_entries();
+    void test_load_malformed_json_fails_atomically();
+    void test_load_non_object_top_level_fails();
+    void test_load_successful_replaces_atomically();
 };
