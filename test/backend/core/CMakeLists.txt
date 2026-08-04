@@ -1,3 +1,5 @@
+qt_standard_project_setup()
+
 qt6_add_executable(backend_core_test
     main.cpp
     setting_manager_test.hpp
@@ -17,7 +19,6 @@ set_target_properties(backend_core_test PROPERTIES
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON
 )
-
 
 # Register tests with CTest + VS Code Test Explorer integration.
 include(${CMAKE_SOURCE_DIR}/cmake/qtest_add_test.cmake)

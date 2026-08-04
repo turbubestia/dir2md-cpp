@@ -1,8 +1,11 @@
 cmake_minimum_required(VERSION 3.21)
-project(MyQtApp LANGUAGES CXX)
+project(MyQtApp LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Add custom CMake module path for qtest_add_test and other helpers
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
 # Coverage support (requires gcovr + LLVM coverage tools)
 option(BUILD_COVERAGE "Enable code coverage instrumentation" OFF)
@@ -13,11 +16,8 @@ if(BUILD_COVERAGE)
 endif()
 
 # Find Qt6 modules installed via Qt Maintenance Tool
-set(CMAKE_AUTOMOC ON)
 find_package(Qt6 REQUIRED COMPONENTS Core Network Quick QuickControls2 Test)
-
-# Add custom CMake module path for qtest_add_test and other helpers
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+find_package(fzy REQUIRED)
 
 add_subdirectory(src)
 
