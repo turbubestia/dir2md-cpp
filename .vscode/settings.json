@@ -2,5 +2,5 @@
     "cmake.configureOnEdit": false,
     "cmake.ctest.testExplorerIntegrationEnabled": true,
     "cmake.ctest.testSuiteDelimiter": "\\.",
-    "cmake.ctest.testSuiteDelimiterMaxOccurrence": 2
+    "cmake.ctest.testSuiteDelimiterMaxOccurrence": 3
 }

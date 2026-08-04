@@ -1,9 +1,11 @@
 qt_standard_project_setup()
 
 qt6_add_executable(backend_core_test
-    main.cpp
-    setting_manager_test.hpp
-    setting_manager_test.cpp
+    fzy_test.hpp
+    fzy_test.cpp
+    # main.cpp
+    # setting_manager_test.hpp
+    # setting_manager_test.cpp
 )
 
 target_include_directories(backend_core_test PRIVATE
@@ -22,8 +24,15 @@ set_target_properties(backend_core_test PROPERTIES
 
 # Register tests with CTest + VS Code Test Explorer integration.
 include(${CMAKE_SOURCE_DIR}/cmake/qtest_add_test.cmake)
+
+# qtest_add_test(
+#     TARGET backend_core_test
+#     SOURCES setting_manager_test.cpp
+#     PREFIX backend.core.setting_manager_test
+# )
+
 qtest_add_test(
     TARGET backend_core_test
-    SOURCES setting_manager_test.cpp
-    PREFIX backend.core
+    SOURCES fzy_test.cpp
+    PREFIX backend.core.fzy_test
 )
