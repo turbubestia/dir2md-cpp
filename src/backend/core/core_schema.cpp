@@ -3,29 +3,110 @@
 
 namespace dir2md::backend {
 namespace {
+    // test settings keys
     inline const QString ToolPath  = "general/core/tool_path";
     inline const QString MaxThreads = "performance/core/max_threads";
+
+    // global settings
+    inline const QString verbose = "general/verbose";
+    inline const QString overwrite = "general/overwrite";
+    inline const QString source_folder = "general/source-folder";
+    inline const QString output_folder = "general/output-folder";
+
+    // ocr model
+    namespace ocr_model {
+        inline const QString endpoint = "ocr-model/endpoint";
+    }
+
+    // language model
+    namespace lang_model {
+        inline const QString endpoint = "lang-model/endpoint";
+    }
+
+    // md_gen
+    namespace md_gen {
+        inline const QString system_prompt_file = "md-gen/system-prompt-file";
+        inline const QString assistant_prompt_file = "md-gen/assistant-prompt-file";
+        inline const QString temperature = "md-gen/temperature";
+    }
+
+    // md_mrg
+    namespace md_mrg::merge {
+        inline const QString system_prompt_file = "md-mrg/merge/system-prompt-file";
+        inline const QString assistant_prompt_file = "md-mrg/merge/assistant-prompt-file";
+        inline const QString temperature = "md-mrg/merge/temperature";
+    }
+
+    namespace md_mrg::summarize {
+        inline const QString system_prompt_file = "md-mrg/summarize/system-prompt-file";
+        inline const QString assistant_prompt_file = "md-mrg/summarize/assistant-prompt-file";
+        inline const QString temperature = "md-mrg/summarize/temperature";
+    }
 }
 
 void CoreSchema::registerSchemas(SettingsManager &manager) {
-    manager.registerSchema({
-        ToolPath,
-        "Tool Path",
-        "Path to external execution binary.",
-        "General",
-        "/usr/bin/tool",
-        QMetaType::fromType<QString>()
-    });
+    // Test setting keys only for unit tests, not for production use.
+    manager.registerSchema({ ToolPath, "Tool Path", 
+        "Path to external execution binary.", "General", 
+        "/usr/bin/tool", QMetaType::fromType<QString>() });
+    manager.registerSchema({ MaxThreads, "Max Worker Threads", 
+        "Maximum worker threads for processing tasks.", "Performance",
+        4, QMetaType::fromType<int>(), 1.0, 32.0 });
 
-    manager.registerSchema({
-        MaxThreads,
-        "Max Worker Threads",
-        "Maximum worker threads for processing tasks.",
-        "Performance",
-        4,
-        QMetaType::fromType<int>(),
-        1.0,  // min
-        32.0  // max
-    });
+    // global settings
+    manager.registerSchema({ verbose, "Verbose Logging", 
+        "Enable verbose logging for debugging purposes.", "General",
+        false, QMetaType::fromType<bool>() });
+    manager.registerSchema({ overwrite, "Overwrite Existing Files", 
+        "Enable overwriting of existing files.", "General",
+        false, QMetaType::fromType<bool>() });
+    manager.registerSchema({ source_folder, "Source Folder", 
+        "Path to the source folder.", "General",
+        "", QMetaType::fromType<QString>() });
+    manager.registerSchema({ output_folder, "Output Folder", 
+        "Path to the output folder.", "General",
+        "", QMetaType::fromType<QString>() });
+
+    // ocr model
+    manager.registerSchema({ ocr_model::endpoint, "OCR Model Endpoint", 
+        "Endpoint URL for the OCR model.", "OCR Model",
+        "", QMetaType::fromType<QString>() });
+
+    // language model
+    manager.registerSchema({ lang_model::endpoint, "Language Model Endpoint", 
+        "Endpoint URL for the language model.", "Language Model",
+        "", QMetaType::fromType<QString>() });
+
+    // md_gen
+    manager.registerSchema({ md_gen::system_prompt_file, "System Prompt File", 
+        "Path to the system prompt file for markdown generation.", "Markdown Generation",
+        "", QMetaType::fromType<QString>() });
+    manager.registerSchema({ md_gen::assistant_prompt_file, "Assistant Prompt File", 
+        "Path to the assistant prompt file for markdown generation.", "Markdown Generation",
+        "", QMetaType::fromType<QString>() });
+    manager.registerSchema({ md_gen::temperature, "Temperature", "Temperature setting for markdown generation.", "Markdown Generation",
+        0.7, QMetaType::fromType<double>(), 0.0, 1.5 });
+
+    // md_mrg::merge
+    manager.registerSchema({ md_mrg::merge::system_prompt_file, "Merge System Prompt File", 
+        "Path to the system prompt file for markdown merging.", "Markdown Merging",
+        "", QMetaType::fromType<QString>() });
+    manager.registerSchema({ md_mrg::merge::assistant_prompt_file, "Merge Assistant Prompt File", 
+        "Path to the assistant prompt file for markdown merging.", "Markdown Merging",
+        "", QMetaType::fromType<QString>() });
+    manager.registerSchema({ md_mrg::merge::temperature, "Merge Temperature", 
+        "Temperature setting for markdown merging.", "Markdown Merging",
+        0.7, QMetaType::fromType<double>(), 0.0, 1.5 });
+
+    // md_mrg::summarize
+    manager.registerSchema({ md_mrg::summarize::system_prompt_file, "Summarize System Prompt File", 
+        "Path to the system prompt file for markdown summarization.", "Markdown Summarization",
+        "", QMetaType::fromType<QString>() });
+    manager.registerSchema({ md_mrg::summarize::assistant_prompt_file, "Summarize Assistant Prompt File", 
+        "Path to the assistant prompt file for markdown summarization.", "Markdown Summarization",
+        "", QMetaType::fromType<QString>() });
+    manager.registerSchema({ md_mrg::summarize::temperature, "Summarize Temperature", 
+        "Temperature setting for markdown summarization.", "Markdown Summarization",
+        0.7, QMetaType::fromType<double>(), 0.0, 1.5 });
 }
 }
