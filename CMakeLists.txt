@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 project(MyQtApp LANGUAGES C CXX)
 
-set(CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/dist" CACHE PATH "Install prefix" FORCE)
+set(CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/dist/${CMAKE_BUILD_TYPE}" CACHE PATH "Install prefix" FORCE)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -21,9 +21,10 @@ endif()
 find_package(Qt6 REQUIRED COMPONENTS Core Network Quick QuickControls2 Test)
 find_package(fzy REQUIRED)
 
+# Source folders
 add_subdirectory(src)
-
-include(CTest)
-enable_testing()
-
 add_subdirectory(test)
+
+# Post-install: deploy Qt runtime once for all executables
+include(deploy-qt)
+deploy_qt_targets("${CMAKE_INSTALL_PREFIX}/bin" dir2md_frontend dir2md_cli)
