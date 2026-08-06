@@ -73,9 +73,7 @@ Use a structure that fits the analyzed source. Do not force every file into the 
 - Important control flow, state transitions, algorithms, or data flow.
 - Ownership, lifetime, nullability, thread-safety, and exception-safety assumptions.
 - Input validation and error-handling behavior.
-- Important invariants and preconditions.
 - Contextual dependencies needed to understand the requested pair.
-- Missing counterpart note for header-only or source-only analysis.
 
 Every generated document must include a top-level section named exactly:
 
