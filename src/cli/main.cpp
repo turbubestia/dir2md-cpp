@@ -19,15 +19,9 @@ int main(int argc, char *argv[])
     parser.process(app);
 
     bool verbose = parser.isSet(verbose_opt);
-    if (verbose) {
-        std::cout << "[verbose] dir2md-cli starting..." << std::endl;
-    }
-
+    if (verbose) { std::cout << "[verbose] dir2md-cli starting..." << std::endl; }
     std::cout << "I am working!" << std::endl;
-
-    if (verbose) {
-        std::cout << "[verbose] dir2md-cli finished." << std::endl;
-    }
+    if (verbose) { std::cout << "[verbose] dir2md-cli finished." << std::endl; }
 
     return 0;
 }

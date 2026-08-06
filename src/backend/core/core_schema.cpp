@@ -23,23 +23,26 @@ namespace {
         inline const QString endpoint = "lang-model/endpoint";
     }
 
+    // cli
+    namespace cli {
+        inline const QString system_prompt_file = "md-gen/system-prompt-file";
+        inline const QString temperature = "md-gen/temperature";
+    }
+
     // md_gen
     namespace md_gen {
         inline const QString system_prompt_file = "md-gen/system-prompt-file";
-        inline const QString assistant_prompt_file = "md-gen/assistant-prompt-file";
         inline const QString temperature = "md-gen/temperature";
     }
 
     // md_mrg
     namespace md_mrg::merge {
         inline const QString system_prompt_file = "md-mrg/merge/system-prompt-file";
-        inline const QString assistant_prompt_file = "md-mrg/merge/assistant-prompt-file";
         inline const QString temperature = "md-mrg/merge/temperature";
     }
 
     namespace md_mrg::summarize {
         inline const QString system_prompt_file = "md-mrg/summarize/system-prompt-file";
-        inline const QString assistant_prompt_file = "md-mrg/summarize/assistant-prompt-file";
         inline const QString temperature = "md-mrg/summarize/temperature";
     }
 }
@@ -81,18 +84,12 @@ void CoreSchema::registerSchemas(SettingsManager &manager) {
     manager.registerSchema({ md_gen::system_prompt_file, "System Prompt File", 
         "Path to the system prompt file for markdown generation.", "Markdown Generation",
         "", QMetaType::fromType<QString>() });
-    manager.registerSchema({ md_gen::assistant_prompt_file, "Assistant Prompt File", 
-        "Path to the assistant prompt file for markdown generation.", "Markdown Generation",
-        "", QMetaType::fromType<QString>() });
     manager.registerSchema({ md_gen::temperature, "Temperature", "Temperature setting for markdown generation.", "Markdown Generation",
         0.7, QMetaType::fromType<double>(), 0.0, 1.5 });
 
     // md_mrg::merge
     manager.registerSchema({ md_mrg::merge::system_prompt_file, "Merge System Prompt File", 
         "Path to the system prompt file for markdown merging.", "Markdown Merging",
-        "", QMetaType::fromType<QString>() });
-    manager.registerSchema({ md_mrg::merge::assistant_prompt_file, "Merge Assistant Prompt File", 
-        "Path to the assistant prompt file for markdown merging.", "Markdown Merging",
         "", QMetaType::fromType<QString>() });
     manager.registerSchema({ md_mrg::merge::temperature, "Merge Temperature", 
         "Temperature setting for markdown merging.", "Markdown Merging",
@@ -101,9 +98,6 @@ void CoreSchema::registerSchemas(SettingsManager &manager) {
     // md_mrg::summarize
     manager.registerSchema({ md_mrg::summarize::system_prompt_file, "Summarize System Prompt File", 
         "Path to the system prompt file for markdown summarization.", "Markdown Summarization",
-        "", QMetaType::fromType<QString>() });
-    manager.registerSchema({ md_mrg::summarize::assistant_prompt_file, "Summarize Assistant Prompt File", 
-        "Path to the assistant prompt file for markdown summarization.", "Markdown Summarization",
         "", QMetaType::fromType<QString>() });
     manager.registerSchema({ md_mrg::summarize::temperature, "Summarize Temperature", 
         "Temperature setting for markdown summarization.", "Markdown Summarization",
