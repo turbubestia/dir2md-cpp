@@ -15,3 +15,13 @@ target_link_libraries(dir2md_frontend PRIVATE
     Qt6::Quick
     Qt6::QuickControls2
 )
+
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(INSTALL_BIN_DIR bin-debug)
+else()
+    set(INSTALL_BIN_DIR bin)
+endif()
+
+install(TARGETS dir2md_frontend
+    RUNTIME DESTINATION ${INSTALL_BIN_DIR}
+)

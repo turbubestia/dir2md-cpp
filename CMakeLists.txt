@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.21)
 project(MyQtApp LANGUAGES C CXX)
 
+set(CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/dist" CACHE PATH "Install prefix" FORCE)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
