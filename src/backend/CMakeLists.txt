@@ -10,6 +10,8 @@ target_include_directories(dir2md_backend PUBLIC
 
 target_link_libraries(dir2md_backend PUBLIC
     Qt6::Core
+    Qt6::Network
+    Qt6::Gui
     fzy
 )
 

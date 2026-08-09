@@ -1,7 +1,7 @@
 qt_add_executable(dir2md_cli main.cpp)
 
 target_link_libraries(dir2md_cli PRIVATE
-    Qt6::Core
+    dir2md_backend
 )
 
 set_target_properties(dir2md_cli PROPERTIES

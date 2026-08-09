@@ -264,6 +264,3 @@ void fzy_test::test_empty_needle_batch_all_overloads() {
     auto positions = match_positions("", targets);
     QVERIFY(positions.empty());
 }
-
-
-QTEST_MAIN(fzy_test)

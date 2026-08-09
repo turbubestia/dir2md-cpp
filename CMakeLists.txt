@@ -23,6 +23,10 @@ find_package(fzy REQUIRED)
 
 # Source folders
 add_subdirectory(src)
+
+include(CTest)
+enable_testing()
+
 add_subdirectory(test)
 
 # Post-install: deploy Qt runtime once for all executables

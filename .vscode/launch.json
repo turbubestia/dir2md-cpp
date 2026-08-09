@@ -2,12 +2,14 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Debug CMake Configure",
-      "type": "cmake",
+      "name": "Debug backend_core_test",
+      "type": "cppvsdbg",
       "request": "launch",
-      "cmakeDebugType": "configure",
-      "scriptPath": "${workspaceFolder}/CMakeLists.txt",
-      "clean": true
+      "program": "${workspaceFolder}/build/cmake-debug/test/backend/core/backend_core_test.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "stopAtEntry": true,
+      "externalConsole": false
     }
   ]
 }
