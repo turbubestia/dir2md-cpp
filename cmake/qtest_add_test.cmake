@@ -111,6 +111,24 @@ function(qtest_add_test)
 
         set_property(TEST ${_test_name} PROPERTY DEF_SOURCE_LINE "${_source_line}")
 
+        # Ensure Qt6 DLLs are discoverable at runtime (needed on MSVC where Qt ships as DLLs).
+        # if(NOT DEFINED _QT6_BIN_DIR)
+        #     get_target_property(_qt6_core_location Qt6::Core IMPORTED_LOCATION_${CMAKE_BUILD_TYPE})
+        #     if(NOT _qt6_core_location)
+        #         get_target_property(_qt6_core_location Qt6::Core LOCATION)
+        #     endif()
+        #     if(_qt6_core_location)
+        #         get_filename_component(_QT6_BIN_DIR "${_qt6_core_location}" DIRECTORY)
+        #     endif()
+        # endif()
+        # if(_QT6_BIN_DIR)
+        #     # Prepend Qt bin dir to PATH so CTest can find Qt DLLs at runtime.
+        #     file(TO_NATIVE_PATH "${_QT6_BIN_DIR}" _qt6_bin_native)
+        #     set_property(TEST ${_test_name} PROPERTY
+        #         ENVIRONMENT_MODIFICATION "PATH=path_list_append:${_qt6_bin_native}"
+        #     )
+        # endif()
+
         # message(STATUS "Added test: ${_test_name} at ${_source_line}")
 
       endif()

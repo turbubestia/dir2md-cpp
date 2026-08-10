@@ -8,8 +8,7 @@
       "program": "${workspaceFolder}/build/cmake-debug/test/backend/core/backend_core_test.exe",
       "args": [],
       "cwd": "${workspaceFolder}",
-      "stopAtEntry": true,
-      "externalConsole": false
+      "stopAtEntry": true
     }
   ]
 }

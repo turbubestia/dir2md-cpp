@@ -60,10 +60,20 @@ add_library(fzy STATIC "${CMAKE_SOURCE_DIR}/thirdparty/fzy/src/match.c")
 target_compile_features(fzy PUBLIC c_std_99)
 
 # Upstream version macro and GNU source extension
-target_compile_definitions(fzy PRIVATE MATCH_VERSION=1.1 _GNU_SOURCE)
+if(MSVC)
+    # MSVC does not support _GNU_SOURCE; define only the version macro
+    target_compile_definitions(fzy PRIVATE MATCH_VERSION=1.1)
+else()
+    # LLVM-Clang / GCC
+    target_compile_definitions(fzy PRIVATE MATCH_VERSION=1.1 _GNU_SOURCE)
+endif()
 
-# Warning policy
-target_compile_options(fzy PRIVATE -Wall -Wextra -pedantic -Werror=vla)
+# Warning policy — suppress all warnings for this vendored third-party library
+if(MSVC)
+    target_compile_options(fzy PRIVATE /w)
+else()
+    target_compile_options(fzy PRIVATE -w)
+endif()
 
 # --- Configure include directories with proper visibility ---------------------
 

@@ -10,12 +10,11 @@ int main(int argc, char *argv[]) {
     QCoreApplication app(argc, argv);
     int status = 0;
 
-    auto runTest = [&](QObject* testObject) -> bool {
+    auto runTest = [&](QObject* testObject) -> void {
         // Create a fresh copy of argv for each qExec call
         int argcCopy = argc;
         std::vector<char*> argvCopy(argv, argv + argc);
-        const auto _status = QTest::qExec(testObject, argcCopy, argvCopy.data());
-        return _status == 0;
+        status |= QTest::qExec(testObject, argcCopy, argvCopy.data());
     };
 
     {

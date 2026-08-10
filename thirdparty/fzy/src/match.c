@@ -1,6 +1,8 @@
 #include <ctype.h>
 #include <string.h>
+#ifndef _MSC_VER
 #include <strings.h>
+#endif
 #include <stdio.h>
 #include <float.h>
 #include <math.h>

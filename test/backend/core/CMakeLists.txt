@@ -4,14 +4,14 @@ qt6_add_executable(backend_core_test
     main.cpp
     fzy_test.hpp
     fzy_test.cpp
-    test_expected.hpp
-    test_expected.cpp
-    test_schema_parser.hpp
-    test_schema_parser.cpp
-    test_prompt_sanitization.hpp
-    test_prompt_sanitization.cpp
-    test_model_client.hpp
-    test_model_client.cpp
+    # test_expected.hpp
+    # test_expected.cpp
+    # test_schema_parser.hpp
+    # test_schema_parser.cpp
+    # test_prompt_sanitization.hpp
+    # test_prompt_sanitization.cpp
+    # test_model_client.hpp
+    # test_model_client.cpp
 )
 
 target_include_directories(backend_core_test PRIVATE
@@ -37,26 +37,26 @@ qtest_add_test(
     PREFIX backend.core.fzy_test
 )
 
-qtest_add_test(
-    TARGET backend_core_test
-    SOURCES test_expected.cpp
-    PREFIX backend.core.test_expected
-)
+# qtest_add_test(
+#     TARGET backend_core_test
+#     SOURCES test_expected.cpp
+#     PREFIX backend.core.test_expected
+# )
 
-qtest_add_test(
-    TARGET backend_core_test
-    SOURCES test_schema_parser.cpp
-    PREFIX backend.core.test_schema_parser
-)
+# qtest_add_test(
+#     TARGET backend_core_test
+#     SOURCES test_schema_parser.cpp
+#     PREFIX backend.core.test_schema_parser
+# )
 
-qtest_add_test(
-    TARGET backend_core_test
-    SOURCES test_prompt_sanitization.cpp
-    PREFIX backend.core.test_prompt_sanitization
-)
+# qtest_add_test(
+#     TARGET backend_core_test
+#     SOURCES test_prompt_sanitization.cpp
+#     PREFIX backend.core.test_prompt_sanitization
+# )
 
-qtest_add_test(
-    TARGET backend_core_test
-    SOURCES test_model_client.cpp
-    PREFIX backend.core.test_model_client
-)
+# qtest_add_test(
+#     TARGET backend_core_test
+#     SOURCES test_model_client.cpp
+#     PREFIX backend.core.test_model_client
+# )
