@@ -1,5 +1,3 @@
-qt_standard_project_setup()
-
 qt_add_library(dir2md_backend STATIC MANUAL_FINALIZATION)
 
 add_subdirectory(core)

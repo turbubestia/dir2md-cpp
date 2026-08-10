@@ -1,4 +1,3 @@
-qt_standard_project_setup()
 
 qt_add_executable(dir2md_frontend
     main.cpp

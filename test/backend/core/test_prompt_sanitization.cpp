@@ -1,6 +1,23 @@
-#include "test_prompt_sanitization.hpp"
 
 #include <backend/core/model.hpp>
+
+#include <QObject>
+#include <QTest>
+
+class test_prompt_sanitization : public QObject {
+    Q_OBJECT
+
+private slots:
+    // Sanitization tests
+    void test_sanitize_begin_of_text_token();
+    void test_sanitize_end_of_text_token();
+    void test_sanitize_normal_text_unchanged();
+    void test_sanitize_multiple_tokens();
+
+    // Post-processing tests
+    void test_strip_zero_width_spaces();
+    void test_strip_zero_width_spaces_no_effect_on_clean_text();
+};
 
 using namespace dir2md::backend;
 
@@ -69,3 +86,5 @@ void test_prompt_sanitization::test_strip_zero_width_spaces_no_effect_on_clean_t
 }
 
 // AUTOMOC handles moc generation
+QTEST_MAIN(test_prompt_sanitization)
+#include "test_prompt_sanitization.moc"

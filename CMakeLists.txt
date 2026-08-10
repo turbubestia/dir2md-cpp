@@ -19,6 +19,8 @@ endif()
 
 # Find Qt6 modules installed via Qt Maintenance Tool
 find_package(Qt6 REQUIRED COMPONENTS Core Network Quick QuickControls2 Test)
+qt_standard_project_setup()
+
 find_package(fzy REQUIRED)
 
 # Source folders

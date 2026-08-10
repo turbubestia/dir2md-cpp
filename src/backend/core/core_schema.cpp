@@ -20,30 +20,30 @@ namespace {
 
     // language model
     namespace lang_model {
-        inline const QString endpoint = "lang-model/endpoint";
+        inline const QString endpoint = "language-model/endpoint";
     }
 
     // cli
     namespace cli {
-        inline const QString system_prompt_file = "md-gen/system-prompt-file";
-        inline const QString temperature = "md-gen/temperature";
+        inline const QString system_prompt_file = "cli/system-prompt-file";
+        inline const QString temperature = "cli/temperature";
     }
 
     // md_gen
     namespace md_gen {
-        inline const QString system_prompt_file = "md-gen/system-prompt-file";
-        inline const QString temperature = "md-gen/temperature";
+        inline const QString system_prompt_file = "markdown-generation/system-prompt-file";
+        inline const QString temperature = "markdown-generation/temperature";
     }
 
     // md_mrg
     namespace md_mrg::merge {
-        inline const QString system_prompt_file = "md-mrg/merge/system-prompt-file";
-        inline const QString temperature = "md-mrg/merge/temperature";
+        inline const QString system_prompt_file = "markdown-merging/merge/system-prompt-file";
+        inline const QString temperature = "markdown-merging/merge/temperature";
     }
 
     namespace md_mrg::summarize {
-        inline const QString system_prompt_file = "md-mrg/summarize/system-prompt-file";
-        inline const QString temperature = "md-mrg/summarize/temperature";
+        inline const QString system_prompt_file = "markdown-merging/summarize/system-prompt-file";
+        inline const QString temperature = "markdown-merging/summarize/temperature";
     }
 }
 
@@ -97,10 +97,10 @@ void CoreSchema::registerSchemas(SettingsManager &manager) {
 
     // md_mrg::summarize
     manager.registerSchema({ md_mrg::summarize::system_prompt_file, "Summarize System Prompt File", 
-        "Path to the system prompt file for markdown summarization.", "Markdown Summarization",
+        "Path to the system prompt file for markdown summarization.", "Markdown Merging",
         "", QMetaType::fromType<QString>() });
     manager.registerSchema({ md_mrg::summarize::temperature, "Summarize Temperature", 
-        "Temperature setting for markdown summarization.", "Markdown Summarization",
+        "Temperature setting for markdown summarization.", "Markdown Merging",
         0.7, QMetaType::fromType<double>(), 0.0, 1.5 });
 }
 }
