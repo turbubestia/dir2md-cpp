@@ -113,9 +113,15 @@ static void registerCoreSchemas(dir2md::backend::SettingsManager &manager)
     dir2md::backend::CoreSchema::registerSchemas(manager);
 }
 
-// Helper function to write JSON file
-static bool writeJsonFile(const QString &filePath, const QJsonObject &obj)
+// Helper function to write JSON file (uses test base directory)
+static bool writeJsonFile(const QString &fileName, const QJsonObject &obj)
 {
+    QString filePath = dir2md::backend::SettingsManager::testBaseDirectoryPath();
+    if (filePath.isEmpty()) {
+        return false;
+    }
+    filePath += "/" + fileName;
+
     QFile file(filePath);
     if (!file.open(QIODevice::WriteOnly)) {
         return false;
@@ -292,15 +298,11 @@ void setting_manager_test::test_save_to_file_creates_json()
     manager.set("general/core/tool_path", QString("/usr/bin/tool"));
     manager.set("performance/core/max_threads", 8);
 
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    QString filePath = tempDir.path() + "/settings.json";
-
-    QVERIFY(manager.save_to_file(filePath));
-    QVERIFY(QFile::exists(filePath));
+    QVERIFY(manager.save_to_file("settings.json"));
+    QVERIFY(QFile::exists(dir2md::backend::SettingsManager::testBaseDirectoryPath() + "/settings.json"));
 
     // Verify JSON is valid and contains expected keys
-    auto rootOpt = readJsonFile(filePath);
+    auto rootOpt = readJsonFile("settings.json");
     QVERIFY(rootOpt.has_value());
     QJsonObject root = rootOpt.value();
     QVERIFY(root.contains("general"));
@@ -322,13 +324,9 @@ void setting_manager_test::test_save_to_file_nested_keys()
     manager.set("general/core/tool_path", QString("/usr/bin/tool"));
     manager.set("performance/core/max_threads", 4);
 
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    QString filePath = tempDir.path() + "/settings.json";
+    QVERIFY(manager.save_to_file("settings.json"));
 
-    QVERIFY(manager.save_to_file(filePath));
-
-    auto rootOpt = readJsonFile(filePath);
+    auto rootOpt = readJsonFile("settings.json");
     QVERIFY(rootOpt.has_value());
     QJsonObject root = rootOpt.value();
     // Core schema registers under "general" and "performance" categories
@@ -343,13 +341,9 @@ void setting_manager_test::test_save_rejects_schema_less_values()
     // Set a registered key
     manager.set("performance/core/max_threads", 8);
 
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    QString filePath = tempDir.path() + "/settings.json";
+    QVERIFY(manager.save_to_file("settings.json"));
 
-    QVERIFY(manager.save_to_file(filePath));
-
-    auto rootOpt = readJsonFile(filePath);
+    auto rootOpt = readJsonFile("settings.json");
     QVERIFY(rootOpt.has_value());
     QJsonObject root = rootOpt.value();
     // Only schema-backed values should be saved
@@ -374,9 +368,8 @@ void setting_manager_test::test_load_from_file_missing_returns_false()
 
 void setting_manager_test::test_load_from_file_malformed_json()
 {
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    QString filePath = tempDir.path() + "/malformed.json";
+    // Write malformed JSON to test base directory
+    QString filePath = dir2md::backend::SettingsManager::testBaseDirectoryPath() + "/malformed.json";
 
     QFile file(filePath);
     QVERIFY(file.open(QIODevice::WriteOnly));
@@ -389,7 +382,7 @@ void setting_manager_test::test_load_from_file_malformed_json()
 
     int oldValue = manager.get("performance/core/max_threads").toInt();
 
-    bool result = manager.load_from_file(filePath);
+    bool result = manager.load_from_file("malformed.json");
     QVERIFY(!result);
 
     // Values should be unchanged (atomic failure)
@@ -404,19 +397,15 @@ void setting_manager_test::test_load_from_file_valid_replaces_values()
     manager.set("general/core/tool_path", QString("/usr/bin/tool"));
     manager.set("performance/core/max_threads", 4);
 
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    QString filePath = tempDir.path() + "/settings.json";
-
     // Save initial values
-    QVERIFY(manager.save_to_file(filePath));
+    QVERIFY(manager.save_to_file("settings.json"));
 
     // Change values in memory
     manager.set("general/core/tool_path", QString("/usr/local/bin/tool"));
     manager.set("performance/core/max_threads", 16);
 
     // Load from file should restore original values
-    QVERIFY(manager.load_from_file(filePath));
+    QVERIFY(manager.load_from_file("settings.json"));
     QCOMPARE(manager.get("general/core/tool_path").toString(), QString("/usr/bin/tool"));
     QCOMPARE(manager.get("performance/core/max_threads").toInt(), 4);
 }
@@ -429,17 +418,13 @@ void setting_manager_test::test_roundtrip_preserves_types()
     manager.set("general/core/tool_path", QString("/usr/bin/tool"));
     manager.set("performance/core/max_threads", 8);
 
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    QString filePath = tempDir.path() + "/settings.json";
-
-    QVERIFY(manager.save_to_file(filePath));
+    QVERIFY(manager.save_to_file("settings.json"));
 
     // Create a new manager and load
     dir2md::backend::SettingsManager manager2;
     registerCoreSchemas(manager2);
 
-    QVERIFY(manager2.load_from_file(filePath));
+    QVERIFY(manager2.load_from_file("settings.json"));
 
     QCOMPARE(manager2.get("general/core/tool_path").toString(), QString("/usr/bin/tool"));
     QCOMPARE(manager2.get("performance/core/max_threads").toInt(), 8);
@@ -451,10 +436,6 @@ void setting_manager_test::test_roundtrip_preserves_types()
 
 void setting_manager_test::test_load_from_file_invalid_value_skipped()
 {
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    QString filePath = tempDir.path() + "/settings.json";
-
     // Register a schema with constraints (int between 1 and 32)
     dir2md::backend::SettingsManager manager;
     registerCoreSchemas(manager);
@@ -467,9 +448,9 @@ void setting_manager_test::test_load_from_file_invalid_value_skipped()
     performance.insert("core", core);
     root.insert("performance", performance);
 
-    QVERIFY(writeJsonFile(filePath, root));
+    QVERIFY(writeJsonFile("settings.json", root));
 
-    bool result = manager.load_from_file(filePath);
+    bool result = manager.load_from_file("settings.json");
     QVERIFY(result);
 
     // Invalid value should be skipped, so we get the default
@@ -478,10 +459,6 @@ void setting_manager_test::test_load_from_file_invalid_value_skipped()
 
 void setting_manager_test::test_load_from_file_unknown_key_silently_ignored()
 {
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    QString filePath = tempDir.path() + "/settings.json";
-
     // Register only core schemas
     dir2md::backend::SettingsManager manager;
     registerCoreSchemas(manager);
@@ -497,9 +474,9 @@ void setting_manager_test::test_load_from_file_unknown_key_silently_ignored()
     general.insert("unknown", unknown);
     root.insert("general", general);
 
-    QVERIFY(writeJsonFile(filePath, root));
+    QVERIFY(writeJsonFile("settings.json", root));
 
-    QVERIFY(manager.load_from_file(filePath));
+    QVERIFY(manager.load_from_file("settings.json"));
 
     // Known key should be loaded
     QCOMPARE(manager.get("general/core/tool_path").toString(), QString("/usr/bin/tool"));
@@ -514,18 +491,14 @@ void setting_manager_test::test_settings_saved_signal_emitted()
     registerCoreSchemas(manager);
     manager.set("performance/core/max_threads", 8);
 
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    QString filePath = tempDir.path() + "/settings.json";
-
     QSignalSpy spy(&manager, &dir2md::backend::SettingsManager::settingsSaved);
     QVERIFY(spy.isValid());
 
-    manager.save_to_file(filePath);
+    manager.save_to_file("settings.json");
 
     QCOMPARE(spy.count(), 1);
     QList<QVariant> arguments = spy.takeFirst();
-    QCOMPARE(arguments.at(0).toString(), filePath);
+    QCOMPARE(arguments.at(0).toString(), dir2md::backend::SettingsManager::testBaseDirectoryPath() + "/settings.json");
 }
 
 // Key syntax validation tests ------------------------------------------------
@@ -709,8 +682,8 @@ void setting_manager_test::test_save_path_rejects_empty_name()
     registerCoreSchemas(manager);
     manager.set("performance/core/max_threads", 8);
 
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
+    // QTemporaryDir tempDir;
+    // QVERIFY(tempDir.isValid());
 
     // Empty name should be rejected
     QVERIFY(!manager.save_to_file(QString()));
@@ -722,62 +695,39 @@ void setting_manager_test::test_save_path_rejects_absolute_path()
     registerCoreSchemas(manager);
     manager.set("performance/core/max_threads", 8);
 
-    // Absolute path should be rejected in production builds
-#ifdef DIR2MD_DEBUG_TEST_PATH
-    // In debug builds with test-path override, absolute paths are allowed
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    QVERIFY(manager.save_to_file(tempDir.filePath("settings.json")));
-#else
+    // Absolute path should always be rejected (even in test mode)
     QVERIFY(!manager.save_to_file("/tmp/settings.json"));
-#endif
 }
 
 void setting_manager_test::test_save_path_rejects_traversal()
 {
-#ifdef DIR2MD_DEBUG_TEST_PATH
-    QSKIP("This test is disabled when DIR2MD_DEBUG_TEST_PATH is set");
-#else
     dir2md::backend::SettingsManager manager;
     registerCoreSchemas(manager);
     manager.set("performance/core/max_threads", 8);
 
-    // Path traversal should be rejected
+    // Path traversal should always be rejected
     QVERIFY(!manager.save_to_file("../../etc/passwd"));
-#endif
 }
 
 void setting_manager_test::test_save_path_rejects_separator_in_name()
 {
-#ifdef DIR2MD_DEBUG_TEST_PATH
-    QSKIP("This test is disabled when DIR2MD_DEBUG_TEST_PATH is set");
-#else
     dir2md::backend::SettingsManager manager;
     registerCoreSchemas(manager);
     manager.set("performance/core/max_threads", 8);
 
-    // Filename with separator should be rejected
+    // Filename with separator should always be rejected
     QVERIFY(!manager.save_to_file("dir/settings.json"));
-#endif
 }
 
 void setting_manager_test::test_save_path_accepts_debug_test_override()
 {
-#ifdef DIR2MD_DEBUG_TEST_PATH
     dir2md::backend::SettingsManager manager;
     registerCoreSchemas(manager);
     manager.set("performance/core/max_threads", 8);
 
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    QString filePath = tempDir.path() + "/settings.json";
-
-    // In debug builds with test-path override, explicit paths should work
-    QVERIFY(manager.save_to_file(filePath));
-    QVERIFY(QFile::exists(filePath));
-#else
-    QSKIP("This test requires DIR2MD_DEBUG_TEST_PATH compile definition");
-#endif
+    // Simple file name should resolve within the test base directory
+    QVERIFY(manager.save_to_file("settings.json"));
+    QVERIFY(QFile::exists(dir2md::backend::SettingsManager::testBaseDirectoryPath() + "/settings.json"));
 }
 
 // Traversal tests --------------------------------------------------------
@@ -790,14 +740,10 @@ void setting_manager_test::test_insert_nested_scalar_replacement()
     // Set a value that creates nested structure
     QVERIFY(manager.set("general/core/tool_path", QString("/usr/bin/tool")));
 
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    QString filePath = tempDir.path() + "/settings.json";
-
-    QVERIFY(manager.save_to_file(filePath));
+    QVERIFY(manager.save_to_file("settings.json"));
 
     // Verify the nested structure is correct
-    auto rootOpt = readJsonFile(filePath);
+    auto rootOpt = readJsonFile("settings.json");
     QVERIFY(rootOpt.has_value());
     QJsonObject root = rootOpt.value();
     QVERIFY(root.contains("general"));
@@ -815,13 +761,10 @@ void setting_manager_test::test_flatten_deeply_nested_json()
         deepObj = wrapper;
     }
 
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    QString filePath = tempDir.path() + "/deep.json";
-    QVERIFY(writeJsonFile(filePath, deepObj));
+    QVERIFY(writeJsonFile("deep.json", deepObj));
 
     // Read and flatten the JSON
-    QFile file(filePath);
+    QFile file(dir2md::backend::SettingsManager::testBaseDirectoryPath() + "/deep.json");
     QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
     QByteArray data = file.readAll();
     file.close();
@@ -838,10 +781,6 @@ void setting_manager_test::test_flatten_deeply_nested_json()
 
 void setting_manager_test::test_load_category_mismatch_normalized()
 {
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    QString filePath = tempDir.path() + "/settings.json";
-
     dir2md::backend::SettingsManager manager;
     registerCoreSchemas(manager);
 
@@ -853,9 +792,9 @@ void setting_manager_test::test_load_category_mismatch_normalized()
     performance.insert("core", core);
     root.insert("PERFORMANCE", performance); // Uppercase variant
 
-    QVERIFY(writeJsonFile(filePath, root));
+    QVERIFY(writeJsonFile("settings.json", root));
 
-    bool result = manager.load_from_file(filePath);
+    bool result = manager.load_from_file("settings.json");
     QVERIFY(result);
 
     // Value SHOULD be loaded — case-insensitive matching now works
@@ -864,10 +803,6 @@ void setting_manager_test::test_load_category_mismatch_normalized()
 
 void setting_manager_test::test_load_mixed_valid_invalid_entries()
 {
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    QString filePath = tempDir.path() + "/settings.json";
-
     dir2md::backend::SettingsManager manager;
     registerCoreSchemas(manager);
 
@@ -879,9 +814,9 @@ void setting_manager_test::test_load_mixed_valid_invalid_entries()
     performance.insert("core", core);
     root.insert("performance", performance);
 
-    QVERIFY(writeJsonFile(filePath, root));
+    QVERIFY(writeJsonFile("settings.json", root));
 
-    bool result = manager.load_from_file(filePath);
+    bool result = manager.load_from_file("settings.json");
     QVERIFY(result);
 
     // Valid value should be loaded
@@ -890,9 +825,8 @@ void setting_manager_test::test_load_mixed_valid_invalid_entries()
 
 void setting_manager_test::test_load_malformed_json_fails_atomically()
 {
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    QString filePath = tempDir.path() + "/malformed.json";
+    // Write malformed JSON to test base directory
+    QString filePath = dir2md::backend::SettingsManager::testBaseDirectoryPath() + "/malformed.json";
 
     QFile file(filePath);
     QVERIFY(file.open(QIODevice::WriteOnly));
@@ -905,7 +839,7 @@ void setting_manager_test::test_load_malformed_json_fails_atomically()
 
     int oldValue = manager.get("performance/core/max_threads").toInt();
 
-    bool result = manager.load_from_file(filePath);
+    bool result = manager.load_from_file("malformed.json");
     QVERIFY(!result);
 
     // Values should be unchanged (atomic failure)
@@ -914,11 +848,9 @@ void setting_manager_test::test_load_malformed_json_fails_atomically()
 
 void setting_manager_test::test_load_non_object_top_level_fails()
 {
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    QString filePath = tempDir.path() + "/array.json";
+    // Write a JSON array to test base directory
+    QString filePath = dir2md::backend::SettingsManager::testBaseDirectoryPath() + "/array.json";
 
-    // Write a JSON array as top-level document
     QFile file(filePath);
     QVERIFY(file.open(QIODevice::WriteOnly));
     file.write("[1, 2, 3]");
@@ -930,7 +862,7 @@ void setting_manager_test::test_load_non_object_top_level_fails()
 
     int oldValue = manager.get("performance/core/max_threads").toInt();
 
-    bool result = manager.load_from_file(filePath);
+    bool result = manager.load_from_file("array.json");
     QVERIFY(!result);
     QCOMPARE(manager.get("performance/core/max_threads").toInt(), oldValue);
 
@@ -940,17 +872,13 @@ void setting_manager_test::test_load_non_object_top_level_fails()
 
 void setting_manager_test::test_load_successful_replaces_atomically()
 {
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    QString filePath = tempDir.path() + "/settings.json";
-
     dir2md::backend::SettingsManager manager;
     registerCoreSchemas(manager);
     manager.set("general/core/tool_path", QString("/usr/bin/tool"));
     manager.set("performance/core/max_threads", 4);
 
     // Save initial values
-    QVERIFY(manager.save_to_file(filePath));
+    QVERIFY(manager.save_to_file("settings.json"));
 
     // Change values in memory
     manager.set("general/core/tool_path", QString("/usr/local/bin/tool"));
@@ -960,7 +888,7 @@ void setting_manager_test::test_load_successful_replaces_atomically()
     QSignalSpy spy(&manager, &dir2md::backend::SettingsManager::settingChanged);
 
     // Load from file - should replace all values atomically
-    QVERIFY(manager.load_from_file(filePath));
+    QVERIFY(manager.load_from_file("settings.json"));
 
     // Verify values are restored
     QCOMPARE(manager.get("general/core/tool_path").toString(), QString("/usr/bin/tool"));
@@ -1108,10 +1036,6 @@ void setting_manager_test::test_registerSchema_consistencyEnforcement_reject()
 
 void setting_manager_test::test_load_caseInsensitiveCategoryMatching()
 {
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    QString filePath = tempDir.path() + "/settings.json";
-
     dir2md::backend::SettingsManager manager;
     registerCoreSchemas(manager);
 
@@ -1133,9 +1057,9 @@ void setting_manager_test::test_load_caseInsensitiveCategoryMatching()
     root.insert("General", general);
     root.insert("PERFORMANCE", performanceUpper);
 
-    QVERIFY(writeJsonFile(filePath, root));
+    QVERIFY(writeJsonFile("settings.json", root));
 
-    bool result = manager.load_from_file(filePath);
+    bool result = manager.load_from_file("settings.json");
     QVERIFY(result);
 
     // Both values should load successfully despite case differences
@@ -1145,10 +1069,6 @@ void setting_manager_test::test_load_caseInsensitiveCategoryMatching()
 
 void setting_manager_test::test_load_underscoreNotSupported()
 {
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    QString filePath = tempDir.path() + "/settings.json";
-
     dir2md::backend::SettingsManager manager;
     registerCoreSchemas(manager);
 
@@ -1160,9 +1080,9 @@ void setting_manager_test::test_load_underscoreNotSupported()
     general_underscore.insert("core", core);
     root.insert("general_underscore", general_underscore);
 
-    QVERIFY(writeJsonFile(filePath, root));
+    QVERIFY(writeJsonFile("settings.json", root));
 
-    bool result = manager.load_from_file(filePath);
+    bool result = manager.load_from_file("settings.json");
     QVERIFY(result); // Load succeeds but value is not loaded
 
     // Value should NOT be loaded — underscore format doesn't match normalized "general"
@@ -1177,14 +1097,10 @@ void setting_manager_test::test_save_normalizedFormatOutput()
     manager.set("general/core/tool_path", QString("/usr/bin/tool"));
     manager.set("performance/core/max_threads", 8);
 
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    QString filePath = tempDir.path() + "/settings.json";
-
-    QVERIFY(manager.save_to_file(filePath));
+    QVERIFY(manager.save_to_file("settings.json"));
 
     // Verify JSON uses normalized (lowercase-dash) keys, NOT display format
-    auto rootOpt = readJsonFile(filePath);
+    auto rootOpt = readJsonFile("settings.json");
     QVERIFY(rootOpt.has_value());
     QJsonObject root = rootOpt.value();
 
@@ -1202,28 +1118,23 @@ void setting_manager_test::test_roundtrip_preservesCategories()
     manager.set("general/core/tool_path", QString("/usr/bin/tool"));
     manager.set("performance/core/max_threads", 8);
 
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    QString filePath = tempDir.path() + "/settings.json";
-
     // Save
-    QVERIFY(manager.save_to_file(filePath));
+    QVERIFY(manager.save_to_file("settings.json"));
 
     // Load into fresh manager
     dir2md::backend::SettingsManager manager2;
     registerCoreSchemas(manager2);
-    QVERIFY(manager2.load_from_file(filePath));
+    QVERIFY(manager2.load_from_file("settings.json"));
 
     // Verify values are preserved
     QCOMPARE(manager2.get("general/core/tool_path").toString(), QString("/usr/bin/tool"));
     QCOMPARE(manager2.get("performance/core/max_threads").toInt(), 8);
 
     // Save again and verify JSON is semantically equivalent
-    QString filePath2 = tempDir.path() + "/settings2.json";
-    QVERIFY(manager2.save_to_file(filePath2));
+    QVERIFY(manager2.save_to_file("settings2.json"));
 
-    auto root1Opt = readJsonFile(filePath);
-    auto root2Opt = readJsonFile(filePath2);
+    auto root1Opt = readJsonFile("settings.json");
+    auto root2Opt = readJsonFile("settings2.json");
     QVERIFY(root1Opt.has_value());
     QVERIFY(root2Opt.has_value());
 
@@ -1231,5 +1142,25 @@ void setting_manager_test::test_roundtrip_preservesCategories()
     QCOMPARE(root1Opt.value().keys(), root2Opt.value().keys());
 }
 
-QTEST_MAIN(setting_manager_test)
+int main(int argc, char *argv[])
+{
+    // 1. Initialize QCoreApplication BEFORE using Qt objects
+    QCoreApplication app(argc, argv);
+
+    // 2. Create setup resources and check for validity
+    QTemporaryDir testBase;
+    if (!testBase.isValid()) {
+        qCritical() << "Failed to create temporary directory:" << testBase.errorString();
+        return 1;
+    }
+
+    dir2md::backend::SettingsManager::setTestBaseDirectory(testBase.path());
+
+    // 3. Execute tests, passing argc and argv
+    setting_manager_test testInstance;
+    const int exitCode = QTest::qExec(&testInstance, argc, argv);
+
+    dir2md::backend::SettingsManager::clearTestBaseDirectory();
+    return exitCode;
+}
 #include "setting_manager_test.moc"

@@ -55,6 +55,21 @@ public:
 
     bool load_from_file(const QString &filePath);
 
+    // test-only API -----------------------------------------------------------
+    // Sets a base directory for persistence paths. When active, simple file
+    // names (no separators) are resolved inside this directory instead of
+    // ~/.config/dir2md/. Intended exclusively for unit-test harnesses.
+    static void setTestBaseDirectory(const QString &path);
+
+    // Clears the test base directory, restoring production path resolution.
+    static void clearTestBaseDirectory();
+
+    // Returns the current test base directory path, or empty string if not set.
+    static QString testBaseDirectoryPath();
+
+    // Internal accessor for resolvePersistencePath (same translation unit)
+    static QString &testBaseDirectory();
+
 signals:
     void settingChanged(const QString &key, const QVariant &newValue);
     void settingsSaved(const QString &path);

@@ -58,21 +58,26 @@ auto resolvePersistencePath(const QString &filePath) -> QString
 {
     if (filePath.isEmpty()) return QString();
 
-#ifdef DIR2MD_DEBUG_TEST_PATH
-    const QString normalizedInput = QDir::cleanPath(QFileInfo(filePath).absoluteFilePath());
-    const bool hasPath = filePath.contains('/') || filePath.contains('\\') || QDir(filePath).isAbsolute();
-    if (hasPath) {
-        const QString tempDirectory = QDir::tempPath();
-        if (isWithinPath(normalizedInput, QDir::homePath()) ||
-            isWithinPath(normalizedInput, tempDirectory)) {
-            return normalizedInput;
+    // Test mode: when a test base directory is set, resolve plain file names
+    // inside that directory.  Reject any input containing path separators or
+    // absolute components to prevent traversal attacks.
+    const QString &testBase = SettingsManager::testBaseDirectory();
+    if (!testBase.isEmpty()) {
+        if (filePath.contains('/') || filePath.contains('\\')) {
+            qWarning() << "Test mode rejects path with separators:" << filePath;
+            return QString();
         }
-        return QString();
+        if (QDir(filePath).isAbsolute()) {
+            qWarning() << "Test mode rejects absolute path:" << filePath;
+            return QString();
+        }
+        const QString resolvedPath = QDir::cleanPath(testBase + "/" + filePath);
+        return isWithinPath(resolvedPath, testBase) ? resolvedPath : QString();
     }
-#else
+
+    // Production mode: only allow simple file names (no separators).
     if (filePath.contains('/') || filePath.contains('\\')) return QString();
     if (QDir(filePath).isAbsolute()) return QString();
-#endif
 
     const QString configDirectory = QDir::homePath() + "/.config/dir2md";
     const QString resolvedPath = QDir::cleanPath(configDirectory + "/" + filePath);
@@ -329,6 +334,27 @@ auto SettingsManager::schema(const QString &key) const -> std::optional<SettingS
 auto SettingsManager::schemas() const -> const QHash<QString, SettingSchema> &
 {
     return m_schemaRegistry;
+}
+
+void SettingsManager::setTestBaseDirectory(const QString &path)
+{
+    testBaseDirectory() = path;
+}
+
+void SettingsManager::clearTestBaseDirectory()
+{
+    testBaseDirectory() = QString();
+}
+
+QString SettingsManager::testBaseDirectoryPath()
+{
+    return testBaseDirectory();
+}
+
+QString &SettingsManager::testBaseDirectory()
+{
+    static QString s_testBase;
+    return s_testBase;
 }
 
 bool SettingsManager::save_to_file(const QString &filePath)
