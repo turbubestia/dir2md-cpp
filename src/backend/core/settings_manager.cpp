@@ -440,8 +440,8 @@ bool SettingsManager::save_to_file(const QString &filePath)
         return false;
     }
 
-    // Emit signal on success
-    emit settingsSaved(filePath);
+    // Emit signal on success with the resolved (absolute) path
+    emit settingsSaved(resolvedPath);
 
     return true;
 }

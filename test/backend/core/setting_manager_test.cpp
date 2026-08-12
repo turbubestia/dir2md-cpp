@@ -132,9 +132,16 @@ static bool writeJsonFile(const QString &fileName, const QJsonObject &obj)
 }
 
 // Helper function to read JSON file — returns nullopt on failure
+// Resolves plain file names against the test base directory (matching save_to_file behavior).
 static std::optional<QJsonObject> readJsonFile(const QString &filePath)
 {
-    QFile file(filePath);
+    QString fullPath = filePath;
+    QString testBase = dir2md::backend::SettingsManager::testBaseDirectoryPath();
+    if (!testBase.isEmpty() && !filePath.contains('/') && !filePath.contains('\\')) {
+        fullPath = testBase + "/" + filePath;
+    }
+
+    QFile file(fullPath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         return std::nullopt;
     }
