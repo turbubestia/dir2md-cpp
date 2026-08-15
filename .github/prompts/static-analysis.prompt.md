@@ -89,7 +89,7 @@ For each material finding, include:
 - Mitigation: a practical source, API, documentation, or validation improvement.
 - Follow-up test recommendation: a focused test idea when a test can reasonably demonstrate or guard the behavior.
 
-If no material issues are found, the `Static Analysis and Security` section must state that no obvious issues were found and record residual risks, assumptions, or dependency limitations that were not fully analyzed.
+If no material issues are found, the `Static Analysis and Security` section must state that no obvious issues were found and record residual risks, assumptions, or dependency limitations that were not fully analyzed. Do not assume everything should be thread-safe or exception-free unless the source explicitly documents those guarantees.
 
 ## Prohibited Artifacts and Changes
 

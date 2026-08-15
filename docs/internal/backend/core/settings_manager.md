@@ -15,7 +15,7 @@
 
 1. **Schema-registered settings** — every writable key must be registered via `SettingSchema`, which declares type, default value, constraints (min/max/enum), category, and human-readable metadata.
 2. **Type-safe accessors** — `get()` returns the active user value or falls back to schema default; `set()` validates against schema before storing.
-3. **Hierarchical JSON persistence** — flat key paths (`"editor/tab_size"`) are serialized to nested JSON grouped by category, and deserialized back with case-insensitive category matching.
+3. **Hierarchical JSON persistence** — flat key paths (`"editor/tab_size"`) are serialized to nested JSON grouped by category, and deserialized back with normalized category matching.
 4. **Signal-based change notification** — emits `settingChanged` on mutations and `settingsSaved` on successful file writes.
 
 The class is designed as a shared backend component consumed by both the QtQuick frontend and the CLI.
@@ -50,35 +50,49 @@ The class is designed as a shared backend component consumed by both the QtQuick
 
 ### Accessors
 
-- **`get(key)`** → `QVariant`  
+- **`get(key)`** → `QVariant`
   Returns user value if present; otherwise schema default; otherwise invalid `QVariant`.
 
-- **`set(key, value)`** → `bool`  
+- **`set(key, value)`** → `bool`
   Validates key syntax, schema registration, type conversion, and constraints. Stores the canonicalized value and emits `settingChanged` only on actual change. Returns `false` on any validation failure.
 
 ### Schema Management
 
-- **`registerSchema(schema)`** → `void`  
-  Registers or replaces a schema. Auto-fills empty category from key prefix. Rejects schemas whose category doesn't match the key prefix (normalized comparison). If replacing, invalidates the active value if it no longer satisfies the new schema. Throws `std::runtime_error` via `RUNTIME_ASSERT` if key syntax is invalid.
+- **`registerSchema(schema)`** → `void`
+  Registers or replaces a schema. Makes a copy of the input schema to modify. Auto-fills empty category from key prefix using `toDisplayFormat(keyPrefix)`. For non-empty categories, normalizes both the category and the key prefix for comparison and rejects mismatches with a warning. If replacing, invalidates the active value if it no longer satisfies the new schema (removes from `m_values` and emits `settingChanged` with the default). Throws `std::runtime_error` via `RUNTIME_ASSERT` if key syntax is invalid.
 
-- **`schema(key)`** → `std::optional<SettingSchema>`  
+- **`schema(key)`** → `std::optional<SettingSchema>`
   Lookup by key.
 
-- **`schemas()`** → `const QHash<QString, SettingSchema> &`  
+- **`schemas()`** → `const QHash<QString, SettingSchema> &`
   Full registry reference.
 
 ### State Inspection
 
-- **`activeValues()`** → `const QHash<QString, QVariant> &`  
+- **`activeValues()`** → `const QHash<QString, QVariant> &`
   Reference to the flat user-value store.
 
 ### Persistence
 
-- **`save_to_file(filePath)`** → `bool`  
-  Resolves path (security-checked), groups values by category into nested JSON, writes atomically via `QSaveFile`. Emits `settingsSaved` on success.
+- **`save_to_file(filePath)`** → `bool`
+  Resolves path (security-checked), validates that no registered schema has an empty category (throws via `RUNTIME_ASSERT` if found), groups values by category into nested JSON using normalized format for JSON keys, writes atomically via `QSaveFile`. Emits `settingsSaved` on success.
 
-- **`load_from_file(filePath)`** → `bool`  
-  Resolves path, parses JSON, flattens nested structure, matches flat keys to registered schemas via case-insensitive category comparison, stages accepted values in a candidate map, then atomically replaces `m_values`. Emits `settingChanged` for added, changed, and removed keys.
+- **`load_from_file(filePath)`** → `bool`
+  Resolves path, parses JSON, flattens nested structure, matches flat keys to registered schemas via normalized category comparison, stages accepted values in a candidate map, then atomically replaces `m_values`. Emits `settingChanged` for added, changed, and removed keys.
+
+### Test-Only API
+
+- **`setTestBaseDirectory(path)`** → `void` (static)
+  Sets a base directory for persistence paths. When active, simple file names (no separators) are resolved inside this directory instead of `~/.config/dir2md/`. Intended exclusively for unit-test harnesses.
+
+- **`clearTestBaseDirectory()`** → `void` (static)
+  Clears the test base directory, restoring production path resolution.
+
+- **`testBaseDirectoryPath()`** → `QString` (static)
+  Returns the current test base directory path, or empty string if not set.
+
+- **`testBaseDirectory()`** → `QString &` (static, private)
+  Internal accessor returning a reference to the static `s_testBase` string used by `resolvePersistencePath`.
 
 ---
 
@@ -87,8 +101,8 @@ The class is designed as a shared backend component consumed by both the QtQuick
 | Function | Purpose |
 |---|---|
 | `isValidKeySyntax(key)` | Rejects empty, whitespace-containing, leading/trailing `/`, or repeated `//` keys |
-| `isWithinPath(path, root)` | Case-insensitive check that `path` is under `root` after normalization |
-| `resolvePersistencePath(filePath)` | Security sandbox: in production, rejects paths with `/`, `\`, or absolute paths and resolves to `~/.config/dir2md/<filePath>`. In debug test mode (`DIR2MD_DEBUG_TEST_PATH`), allows home/temp directory paths |
+| `isWithinPath(path, root)` | Case-insensitive check that `path` is under `root` after `QDir::cleanPath` normalization |
+| `resolvePersistencePath(filePath)` | Path resolver with two modes: (1) **Test mode** — when `testBaseDirectory()` is set, resolves plain file names inside the test base; rejects paths with separators or absolute paths. (2) **Production mode** — rejects paths with separators or absolute paths; resolves to `~/.config/dir2md/<filePath>`. Both modes use `isWithinPath` to verify the resolved path stays within the allowed root |
 | `insertNestedValue(obj, pathParts, value)` | Rebuilds nested `QJsonObject` from a flat path (leaf-up reconstruction) |
 | `flattenJsonObject(obj, prefix, out)` | Iterative stack-based flattening of nested JSON to flat key paths |
 | `toDisplayFormat(normalized)` | `"tab-size"` → `"Tab Size"` (split on `-`, title-case each segment) |
@@ -107,11 +121,12 @@ Any step returning false aborts with no side effects.
 
 ### `load_from_file()` Atomic Commit Pattern
 1. Parse JSON → flatten to flat keys.
-2. For each flat key, find matching schema (case-insensitive category + path suffix match).
-3. Type-coerce and stage in `candidateValues`.
-4. Compare `candidateValues` against current `m_values` to classify keys as added/changed/removed.
-5. **Atomically replace** `m_values = candidateValues`.
-6. Emit signals for all changed keys.
+2. For each flat key, split into category + rest-of-path. Find matching schema by comparing normalized category forms (`toNormalizedFormat(jsonCategory) == toNormalizedFormat(schema.category)`) and path suffix equality.
+3. Validate value against matched schema; skip if invalid.
+4. Type-coerce and stage in `candidateValues`.
+5. Compare `candidateValues` against current `m_values` to classify keys as added/changed/removed.
+6. **Atomically replace** `m_values = candidateValues`.
+7. Emit signals for all changed keys, then added keys, then removed keys.
 
 This pattern ensures that a partial parse failure never corrupts in-memory state — the swap happens only after all values are staged.
 
@@ -125,6 +140,7 @@ Uses `QSaveFile` to write to a temporary file first, then atomically rename on c
 - **QObject subclass** with standard Qt parent-child ownership. No custom destructor — relies on Qt's object tree cleanup.
 - **No explicit thread-safety mechanisms.** `QHash` is not thread-safe for concurrent read/write. If accessed from multiple threads (e.g., UI thread + background worker), external synchronization is required.
 - **Signals** are emitted synchronously during `set()` and `load_from_file()`. Connectors should be aware that slot execution happens on the calling thread (unless using `Qt::QueuedConnection`).
+- **Static test base directory** — `s_testBase` is a Meyers-initialized static `QString` shared across all instances. Not thread-safe; concurrent calls to `setTestBaseDirectory()` from parallel test threads could race.
 
 ---
 
@@ -136,34 +152,34 @@ Uses `QSaveFile` to write to a temporary file first, then atomically rename on c
 | `registerSchema()` | Key syntax (`RUNTIME_ASSERT` → throws), category-prefix consistency | Throws on bad key; returns early (no-op) on category mismatch with warning |
 | `save_to_file()` | Path resolution (security sandbox), empty-category assertion, directory creation, file I/O | Returns `false` with `qWarning()`, or throws via `RUNTIME_ASSERT` if schema has empty category |
 | `load_from_file()` | Path resolution, JSON parse, top-level object check, schema matching | Returns `false` silently (missing file) or with `qWarning()` (parse error). Unknown keys are skipped. |
-
+| `setTestBaseDirectory()` | None — accepts any path string | No validation; caller responsibility to provide a safe directory |
 ---
 
 ## Contextual Dependencies
 
 - **`assert.hpp`** — provides `RUNTIME_ASSERT` (throws `std::runtime_error`) used for invariant enforcement in `registerSchema()` and `save_to_file()`.
 - **Qt Core** — `QObject`, `QHash`, `QString`, `QVariant`, `QMetaType`, `QJsonDocument`, `QSaveFile`, signals/slots.
-- **`DIR2MD_DEBUG_TEST_PATH` macro** — compile-time flag that relaxes path sandboxing for tests. Absent in production builds.
+- **Static test base directory** — `s_testBase` (Meyers-initialized static `QString`) used by `resolvePersistencePath` for test-mode path resolution. No compile-time macro required.
 
 ---
 
 ## Static Analysis and Security
 
-### 1. Path Traversal in `resolvePersistencePath` (Debug Mode)
+### 1. Test Mode Path Resolution Is Safer Than Previous Debug Mode
 
-**Evidence:** When `DIR2MD_DEBUG_TEST_PATH` is defined, the function accepts any absolute path within the user's home directory or temp directory after `QDir::cleanPath` normalization.
+**Evidence:** The previous `DIR2MD_DEBUG_TEST_PATH` macro-based debug mode has been replaced with a proper test-only API (`setTestBaseDirectory`). The new `resolvePersistencePath` in test mode rejects paths containing `/` or `\` separators and absolute paths, then verifies the resolved path stays within the test base using `isWithinPath`.
 
-**Risk:** `QDir::cleanPath` removes `.` and `..` but does not resolve symlinks. A symlink inside `~/.config/dir2md/` pointing to a sensitive location could be exploited if an attacker controls the filesystem.
+**Risk:** Significantly reduced compared to the previous implementation. The test mode no longer allows arbitrary paths within the home directory. However, `isWithinPath` still uses `QDir::cleanPath` (which removes `.` and `..` but does not resolve symlinks), so a symlink inside the test base directory could still be followed.
 
-**Impact:** Moderate — only active in debug/test builds, but a test binary with this flag compiled could write settings to arbitrary locations within the home directory.
+**Impact:** Low — only active when `setTestBaseDirectory` is explicitly called (test harnesses only), and the path separator rejection prevents most traversal attacks. Symlink escape remains theoretically possible.
 
-**Mitigation:** Add `QFileInfo(resolvedPath).canonicalFilePath()` comparison against the canonical root to detect symlink escapes. Alternatively, restrict debug mode to a known test subdirectory rather than the entire home path.
+**Mitigation:** Use `QFileInfo(resolvedPath).canonicalFilePath()` comparison against the canonical test base to detect symlink escapes.
 
-**Follow-up test:** Create a symlink from a temp file to `~/.ssh/id_rsa` and verify that `resolvePersistencePath` rejects it or resolves to a safe path.
+**Follow-up test:** Create a symlink from a temp file to a sensitive location within the test base directory and verify that `resolvePersistencePath` either rejects it or resolves to a safe canonical path.
 
 ### 2. Case-Insensitive Path Comparison on Windows
 
-**Evidence:** `isWithinPath` uses `Qt::CaseInsensitive` for `startsWith` comparison after normalization. On Windows this is correct, but the same binary cross-compiled to Linux would still use case-insensitive comparison, weakening the sandbox.
+**Evidence:** `isWithinPath` uses `Qt::CaseInsensitive` for `startsWith` comparison after `QDir::cleanPath` normalization. On Windows this is correct, but the same binary cross-compiled to Linux would still use case-insensitive comparison, weakening the sandbox.
 
 **Risk:** On case-sensitive filesystems (Linux), `~/.config/dir2md/../../etc/passwd` could pass a case-insensitive check if the normalized root happens to share a prefix with a crafted path.
 
@@ -245,6 +261,18 @@ Uses `QSaveFile` to write to a temporary file first, then atomically rename on c
 
 **Follow-up test:** Mock a `QSaveFile` subclass that returns a partial write count and verify the error path is taken.
 
+### 9. Static `testBaseDirectory()` Is Not Thread-Safe
+
+**Evidence:** `testBaseDirectory()` returns a reference to a static `QString s_testBase`. Multiple threads calling `setTestBaseDirectory()` or `testBaseDirectory()` concurrently could cause data races on the `QString`.
+
+**Risk:** Data race on the static string if tests or production code call the test API from multiple threads.
+
+**Impact:** Low — the test API is intended for single-threaded test harnesses, but if a test framework runs tests in parallel, the static could be corrupted.
+
+**Mitigation:** Add a `QMutex` around access to `s_testBase`, or document that the test API is not thread-safe.
+
+**Follow-up test:** Run parallel unit tests that each call `setTestBaseDirectory()` with different paths and verify no corruption occurs.
+
 ---
 
 ## Summary of Residual Risks
@@ -253,9 +281,10 @@ Uses `QSaveFile` to write to a temporary file first, then atomically rename on c
 |---|---|---|
 | Exception safety in Qt context | **High** | `RUNTIME_ASSERT` throws through QObject event loop |
 | Silent data loss on schema replacement | **Medium** | Active values reset to defaults without explicit notification |
-| Path traversal (debug mode) | **Medium** | Symlink escape possible in test builds |
+| Symlink escape in test mode | **Low** | `isWithinPath` uses `QDir::cleanPath` (no symlink resolution); test-only API |
 | Cross-platform path comparison | **Low** | Case-insensitive check on Linux weakens sandbox |
 | Re-entrant signal handlers | **Low** | Slots calling `set()` during load may cause inconsistent state |
 | O(N²) schema matching | **Low** | Acceptable for current scale, degrades with growth |
 | No file locking | **Low** | Single-instance assumption; risk if multi-instance added |
 | Partial write check | **Low** | Unlikely on local filesystem but technically incorrect |
+| Thread safety of test API | **Low** | Static `s_testBase` not protected; only matters for parallel test execution |
