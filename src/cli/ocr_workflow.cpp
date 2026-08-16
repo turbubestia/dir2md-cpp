@@ -19,6 +19,7 @@ namespace dir2md::cli {
 namespace {
 
 inline const QString ocr_model_endpoint_key = "ocr-model/endpoint";
+inline const QString ocr_model_name_key = "ocr-model/model-name";
 
 auto print_ocr_usage() -> void {
     std::cerr <<
@@ -109,12 +110,14 @@ auto pump_until_finished(bool &finished) -> void {
 // Process one source (image file or PDF) sequentially. Returns success and the
 // markdown content for the source (pages assembled with separators for PDFs).
 auto process_source(const QString &source_path, const QString &endpoint, float temperature,
-                    const QString &system_prompt, bool is_pdf) -> std::pair<bool, QString> {
+                    const QString &system_prompt, bool is_pdf,
+                    const QString &model_name) -> std::pair<bool, QString> {
     dir2md::backend::thinking_stripper stripper;
 
     if (!is_pdf) {
         auto client = std::make_unique<dir2md::backend::image_to_text_client>(QCoreApplication::instance());
         client->set_endpoint_url(endpoint);
+        client->set_model_name(model_name);
         client->set_temperature(temperature);
         request_result result;
         bool finished = false;
@@ -144,6 +147,7 @@ auto process_source(const QString &source_path, const QString &endpoint, float t
         stripper.reset();
         auto client = std::make_unique<dir2md::backend::image_to_text_client>(QCoreApplication::instance());
         client->set_endpoint_url(endpoint);
+        client->set_model_name(model_name);
         client->set_temperature(temperature);
         request_result result;
         bool finished = false;
@@ -224,6 +228,13 @@ auto execute_ocr(const QStringList &args) -> int {
     }
     const QString endpoint = endpoint_result.value();
 
+    auto model_name_result = resolve_model_name(ocr_model_name_key, *settings);
+    if (!model_name_result.has_value()) {
+        std::cerr << "Error: " << model_name_result.error().description.toStdString() << "\n";
+        return 1;
+    }
+    const QString model_name = model_name_result.value();
+
     const QString output_folder = parser.value(output_opt);
 
     // Classify the source: file (direct, no confirmation) or folder (scan + confirm).
@@ -272,7 +283,7 @@ auto execute_ocr(const QStringList &args) -> int {
         const bool is_pdf = QFileInfo(src).suffix().toLower() == "pdf";
         std::cout << "\n=== " << QFileInfo(src).fileName().toStdString() << " ===\n" << std::flush;
 
-        const auto [success, content] = process_source(src, endpoint, temperature, system_prompt, is_pdf);
+        const auto [success, content] = process_source(src, endpoint, temperature, system_prompt, is_pdf, model_name);
         if (!success) {
             ++failures;
             continue;

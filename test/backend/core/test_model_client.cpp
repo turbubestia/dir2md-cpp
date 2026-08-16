@@ -11,6 +11,7 @@ class test_model_client : public QObject {
 private slots:
     // Property tests
     void test_endpoint_url_property();
+    void test_model_name_property();
     void test_temperature_property();
     void test_coalescing_interval_property();
 
@@ -37,6 +38,14 @@ void test_model_client::test_endpoint_url_property() {
 
     client.set_endpoint_url("http://localhost:8080");
     QCOMPARE(client.get_endpoint_url(), QString("http://localhost:8080"));
+}
+
+void test_model_client::test_model_name_property() {
+    text_to_text_client client;
+    QCOMPARE(client.get_model_name(), QString(""));
+
+    client.set_model_name("gpt-4o-mini");
+    QCOMPARE(client.get_model_name(), QString("gpt-4o-mini"));
 }
 
 void test_model_client::test_temperature_property() {

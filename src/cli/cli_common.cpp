@@ -119,6 +119,15 @@ auto resolve_endpoint(const QString &key, dir2md::backend::SettingsManager &sett
     return expected_string(endpoint);
 }
 
+auto resolve_model_name(const QString &key, dir2md::backend::SettingsManager &settings) -> expected_string {
+    const QString model_name = settings.get(key).toString().trimmed();
+    if (model_name.isEmpty()) {
+        return expected_string(-1,
+                               QString("Model name setting %1 is empty; configure it before running").arg(key));
+    }
+    return expected_string(model_name);
+}
+
 auto resolve_markdown_path(const QString &source_path, const QString &output_folder) -> QString {
     QFileInfo info(QDir::cleanPath(source_path));
     const QString base_name = info.completeBaseName() + ".md";

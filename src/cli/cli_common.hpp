@@ -50,6 +50,10 @@ auto resolve_temperature(std::optional<QString> option_value, dir2md::backend::S
 // Endpoint resolution from settings for a given key; hard error when empty.
 auto resolve_endpoint(const QString &key, dir2md::backend::SettingsManager &settings) -> expected_string;
 
+// Model-name resolution from settings for a given key; hard error when empty.
+// The server routes the request by this name, so it must be present.
+auto resolve_model_name(const QString &key, dir2md::backend::SettingsManager &settings) -> expected_string;
+
 // Resolve the markdown target path for a source: alongside the source by
 // default, or inside output_folder when non-empty. The base filename is
 // preserved and the extension replaced with .md.

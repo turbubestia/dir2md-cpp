@@ -16,11 +16,13 @@ namespace {
     // ocr model
     namespace ocr_model {
         inline const QString endpoint = "ocr-model/endpoint";
+        inline const QString model_name = "ocr-model/model-name";
     }
 
     // language model
     namespace lang_model {
         inline const QString endpoint = "language-model/endpoint";
+        inline const QString model_name = "language-model/model-name";
     }
 
     // cli
@@ -74,10 +76,16 @@ void CoreSchema::registerSchemas(SettingsManager &manager) {
     manager.registerSchema({ ocr_model::endpoint, "OCR Model Endpoint", 
         "Endpoint URL for the OCR model.", "OCR Model",
         "", QMetaType::fromType<QString>() });
+    manager.registerSchema({ ocr_model::model_name, "OCR Model Name", 
+        "Name of the OCR model to use.", "OCR Model",
+        "", QMetaType::fromType<QString>() });
 
     // language model
     manager.registerSchema({ lang_model::endpoint, "Language Model Endpoint", 
         "Endpoint URL for the language model.", "Language Model",
+        "", QMetaType::fromType<QString>() });
+    manager.registerSchema({ lang_model::model_name, "Language Model Name", 
+        "Name of the language model to use.", "Language Model",
         "", QMetaType::fromType<QString>() });
 
     // cli

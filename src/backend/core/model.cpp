@@ -256,6 +256,17 @@ auto model_client_base::set_endpoint_url(const QString &url) -> void {
     }
 }
 
+auto model_client_base::get_model_name() const -> QString {
+    return m_model_name;
+}
+
+auto model_client_base::set_model_name(const QString &name) -> void {
+    if (m_model_name != name) {
+        m_model_name = name;
+        emit model_name_changed(name);
+    }
+}
+
 auto model_client_base::get_temperature() const -> float {
     return m_temperature;
 }
@@ -485,6 +496,7 @@ auto image_to_text_client::format_payload() -> QJsonDocument {
     messages_array.append(msg_obj);
 
     root["messages"] = messages_array;
+    root["model"] = m_model_name;
     root["temperature"] = m_temperature;
     root["stream"] = true;
 
@@ -622,7 +634,10 @@ auto text_to_text_client::format_payload() -> QJsonDocument {
     }
     // assistant_prompt is discarded for OpenAI format
 
-    return parser->construct_request(messages, m_temperature);
+    QJsonDocument doc = parser->construct_request(messages, m_temperature);
+    QJsonObject root = doc.object();
+    root["model"] = m_model_name;
+    return QJsonDocument(root);
 }
 
 } // namespace dir2md::backend

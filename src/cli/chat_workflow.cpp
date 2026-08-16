@@ -14,6 +14,7 @@ namespace dir2md::cli {
 namespace {
 
 inline const QString language_model_endpoint_key = "language-model/endpoint";
+inline const QString language_model_name_key = "language-model/model-name";
 
 auto print_chat_usage() -> void {
     std::cerr <<
@@ -85,6 +86,13 @@ auto execute_chat(const QStringList &args) -> int {
         return 1;
     }
 
+    auto model_name_result = resolve_model_name(language_model_name_key, *settings);
+    if (!model_name_result.has_value()) {
+        std::cerr << "Error: " << model_name_result.error().description.toStdString() << "\n";
+        return 1;
+    }
+    const QString model_name = model_name_result.value();
+
     // Header: effective temperature + full system prompt + full user prompt.
     std::cout << "temperature: " << temperature << "\n";
     std::cout << "system prompt:\n" << system_prompt.toStdString() << "\n";
@@ -92,6 +100,7 @@ auto execute_chat(const QStringList &args) -> int {
 
     auto client = std::make_unique<dir2md::backend::text_to_text_client>(QCoreApplication::instance());
     client->set_endpoint_url(endpoint_result.value());
+    client->set_model_name(model_name);
     client->set_temperature(static_cast<float>(temperature));
     client->set_system_prompt(system_prompt);
     client->set_user_prompt(user_prompt);

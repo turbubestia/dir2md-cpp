@@ -27,6 +27,7 @@ private slots:
 
     // cli_common resolvers (pure, network-free).
     void test_resolve_temperature();
+    void test_resolve_model_name();
     void test_resolve_markdown_path();
     void test_assemble_pdf_markdown();
     void test_resolve_text_or_file();
@@ -94,6 +95,26 @@ void cli_workflow_test::test_resolve_temperature() {
     // Out-of-range value is rejected.
     auto out_of_range = resolve_temperature(QString("3.0"), settings);
     QVERIFY(!out_of_range.has_value());
+}
+
+void cli_workflow_test::test_resolve_model_name() {
+    dir2md::backend::SettingsManager settings;
+    dir2md::backend::CoreSchema::registerSchemas(settings);
+
+    // The schema default is empty -> hard error.
+    auto missing = resolve_model_name("language-model/model-name", settings);
+    QVERIFY(!missing.has_value());
+
+    // A configured value resolves (trimmed).
+    settings.set("language-model/model-name", "gpt-4o-mini");
+    auto present = resolve_model_name("language-model/model-name", settings);
+    QVERIFY(present.has_value());
+    QCOMPARE(present.value(), QString("gpt-4o-mini"));
+
+    // Whitespace-only is treated as empty -> hard error.
+    settings.set("ocr-model/model-name", "   ");
+    auto blank = resolve_model_name("ocr-model/model-name", settings);
+    QVERIFY(!blank.has_value());
 }
 
 void cli_workflow_test::test_resolve_markdown_path() {

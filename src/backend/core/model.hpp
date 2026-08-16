@@ -114,6 +114,7 @@ class model_client_base : public QObject {
     Q_OBJECT
 
     Q_PROPERTY(QString endpoint_url READ get_endpoint_url WRITE set_endpoint_url NOTIFY endpoint_url_changed)
+    Q_PROPERTY(QString model_name READ get_model_name WRITE set_model_name NOTIFY model_name_changed)
     Q_PROPERTY(float temperature READ get_temperature WRITE set_temperature NOTIFY temperature_changed)
     Q_PROPERTY(int coalescing_interval_ms READ get_coalescing_interval_ms WRITE set_coalescing_interval_ms NOTIFY coalescing_interval_ms_changed)
 
@@ -124,6 +125,9 @@ public:
     // Property accessors
     auto get_endpoint_url() const -> QString;
     auto set_endpoint_url(const QString &url) -> void;
+
+    auto get_model_name() const -> QString;
+    auto set_model_name(const QString &name) -> void;
 
     auto get_temperature() const -> float;
     auto set_temperature(float temp) -> void;
@@ -144,6 +148,7 @@ signals:
     void cancelled();
     void error_occurred(const error_frame &err);
     void endpoint_url_changed(const QString &url);
+    void model_name_changed(const QString &name);
     void temperature_changed(float temp);
     void coalescing_interval_ms_changed(int ms);
 
@@ -153,6 +158,7 @@ protected:
     QTimer *m_coalescing_timer;
 
     QString m_endpoint_url;
+    QString m_model_name;
     float m_temperature = 0.7f;
     int m_coalescing_interval_ms = 250;
 
