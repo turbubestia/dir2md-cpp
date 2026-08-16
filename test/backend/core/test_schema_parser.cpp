@@ -75,7 +75,7 @@ void test_schema_parser::test_openai_construct_request_roles() {
         { message_role::user, "Hello there" },
     };
 
-    QJsonDocument doc = parser.construct_request(messages, 0.7f);
+    QJsonDocument doc = parser.construct_request(messages, 0.7f, true);
     QVERIFY(doc.isObject());
     const QJsonObject root = doc.object();
 
@@ -90,7 +90,7 @@ void test_schema_parser::test_openai_construct_request_roles() {
 
     // Tolerance compare: the payload stores a float, so 0.7f is not exactly 0.7.
     QVERIFY(qAbs(root["temperature"].toDouble() - 0.7) < 1e-6);
-    QVERIFY(root["stream"].toBool());
+    QCOMPARE(root["stream"].toBool(false), true);
 }
 
 // ============================================================================
@@ -132,7 +132,7 @@ void test_schema_parser::test_native_construct_request_ignores_roles() {
         { message_role::user, "user line" },
     };
 
-    QJsonDocument doc = parser.construct_request(messages, 0.7f);
+    QJsonDocument doc = parser.construct_request(messages, 0.7f, true);
     QVERIFY(doc.isObject());
     const QJsonObject root = doc.object();
 
@@ -140,7 +140,7 @@ void test_schema_parser::test_native_construct_request_ignores_roles() {
     // newline delimiter and roles are ignored (preserves pre-fix behavior).
     QCOMPARE(root["prompt"].toString(), QString("system line\nuser line"));
     QVERIFY(qAbs(root["temperature"].toDouble() - 0.7) < 1e-6);
-    QVERIFY(root["stream"].toBool());
+    QCOMPARE(root["stream"].toBool(false), true);
 }
 
 // ============================================================================

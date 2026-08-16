@@ -1,5 +1,6 @@
 #include "model.hpp"
 
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QNetworkRequest>
@@ -127,7 +128,7 @@ auto role_to_string(message_role role) -> QString {
 
 } // namespace
 
-auto openai_schema_parser::construct_request(const std::vector<chat_message> &messages, float temperature) -> QJsonDocument {
+auto openai_schema_parser::construct_request(const std::vector<chat_message> &messages, float temperature, bool stream) -> QJsonDocument {
     QJsonObject root;
     QJsonArray messages_array;
 
@@ -140,9 +141,50 @@ auto openai_schema_parser::construct_request(const std::vector<chat_message> &me
 
     root["messages"] = messages_array;
     root["temperature"] = temperature;
-    root["stream"] = true;
+    root["stream"] = stream;
 
     return QJsonDocument(root);
+}
+
+auto openai_schema_parser::parse_full_response(const QString &body) -> QString {
+    if (body.isEmpty()) {
+        return "";
+    }
+
+    QJsonParseError parse_error;
+    QJsonDocument doc = QJsonDocument::fromJson(body.toUtf8(), &parse_error);
+    if (parse_error.error != QJsonParseError::NoError) {
+        return "";
+    }
+
+    if (!doc.isObject()) {
+        return "";
+    }
+
+    QJsonObject root = doc.object();
+    if (!root.contains("choices")) {
+        return "";
+    }
+
+    QJsonArray choices = root["choices"].toArray();
+    if (choices.isEmpty() || !choices[0].isObject()) {
+        return "";
+    }
+
+    QJsonObject first_choice = choices[0].toObject();
+    if (!first_choice.contains("message")) {
+        return "";
+    }
+
+    QJsonObject message = first_choice["message"].toObject();
+    if (!message.contains("content")) {
+        return "";
+    }
+
+    // Dedicated reasoning fields (reasoning_content / thinking) on the message
+    // are intentionally not read: they are discarded, never mixed into the
+    // answer text.
+    return message["content"].toString("");
 }
 
 // ============================================================================
@@ -212,7 +254,7 @@ auto native_schema_parser::parse_usage(const QString &line) -> token_stats {
     return stats;
 }
 
-auto native_schema_parser::construct_request(const std::vector<chat_message> &messages, float temperature) -> QJsonDocument {
+auto native_schema_parser::construct_request(const std::vector<chat_message> &messages, float temperature, bool stream) -> QJsonDocument {
     QJsonObject root;
 
     // Native format uses a single prompt string with <|...|> delimiters.
@@ -227,14 +269,49 @@ auto native_schema_parser::construct_request(const std::vector<chat_message> &me
 
     root["prompt"] = prompt;
     root["temperature"] = temperature;
-    root["stream"] = true;
+    root["stream"] = stream;
 
     return QJsonDocument(root);
+}
+
+auto native_schema_parser::parse_full_response(const QString &body) -> QString {
+    if (body.isEmpty()) {
+        return "";
+    }
+
+    QJsonParseError parse_error;
+    QJsonDocument doc = QJsonDocument::fromJson(body.toUtf8(), &parse_error);
+    if (parse_error.error != QJsonParseError::NoError) {
+        return "";
+    }
+
+    if (!doc.isObject()) {
+        return "";
+    }
+
+    QJsonObject root = doc.object();
+    if (!root.contains("content")) {
+        return "";
+    }
+
+    // A top-level reasoning_content field is intentionally not read: it is
+    // discarded, never mixed into the answer text.
+    return root["content"].toString("");
 }
 
 // ============================================================================
 // Model client base class implementation
 // ============================================================================
+
+model_client_base::raw_line_probe_fn model_client_base::s_raw_line_probe = nullptr;
+
+auto model_client_base::set_raw_line_probe(raw_line_probe_fn probe) -> void {
+    s_raw_line_probe = std::move(probe);
+}
+
+auto model_client_base::clear_raw_line_probe() -> void {
+    s_raw_line_probe = nullptr;
+}
 
 model_client_base::model_client_base(QObject *parent)
     : QObject(parent),
@@ -289,6 +366,17 @@ auto model_client_base::set_coalescing_interval_ms(int ms) -> void {
     }
 }
 
+auto model_client_base::get_stream() const -> bool {
+    return m_stream;
+}
+
+auto model_client_base::set_stream(const bool &stream) -> void {
+    if (m_stream != stream) {
+        m_stream = stream;
+        emit stream_changed(stream);
+    }
+}
+
 auto model_client_base::is_busy() const -> bool {
     return m_busy;
 }
@@ -309,6 +397,9 @@ auto model_client_base::start_request(const QJsonDocument &payload) -> void {
     m_cancelled = false;
     m_accumulated_text.clear();
     m_chunk_buffer.clear();
+    m_line_carryover.clear();
+    m_full_body.clear();
+    m_stream_finished = false;
     m_current_stats = token_stats{};
 
     QNetworkRequest request((QUrl(m_endpoint_url)));
@@ -332,12 +423,26 @@ auto model_client_base::on_ready_read() -> void {
     }
 
     QByteArray data = m_network_reply->readAll();
-    QString text(data);
+    QString text(QString::fromUtf8(data));
 
-    // Process line by line
-    QStringList lines = text.split('\n', Qt::SkipEmptyParts);
-    for (const QString &line : lines) {
-        process_line(line.trimmed());
+    // Non-streaming: the body is a single JSON object, not lines. Accumulate
+    // it across reads; extraction happens once in on_finished. No line
+    // splitting, no coalescing timer.
+    if (!m_stream) {
+        m_full_body += text;
+        return;
+    }
+
+    // Streaming: reassemble lines split across TCP reads. The trailing
+    // segment (not terminated by a newline) is carried over to the next read,
+    // so a JSON line split in two is processed exactly once.
+    QString combined = m_line_carryover + text;
+    QStringList lines = combined.split('\n', Qt::KeepEmptyParts);
+
+    m_line_carryover = lines.last();
+
+    for (int i = 0; i < lines.size() - 1; ++i) {
+        process_line(lines[i].trimmed());
     }
 }
 
@@ -346,20 +451,97 @@ auto model_client_base::process_line(const QString &line) -> void {
         return;
     }
 
+    // Test-only: hand the raw line (exactly as received, before schema parsing)
+    // to the probe so integration tests can see what the server actually sent.
+    if (s_raw_line_probe) {
+        s_raw_line_probe(line);
+    }
+
+    // Manual debugging aid: with DIR2MD_MODEL_DEBUG set, dump every raw response
+    // line to stderr AND append it to %TEMP%/dir2md_model_debug.log. Lets you
+    // inspect the real endpoint's wire format (e.g. SSE "data:" prefixes vs
+    // NDJSON) without any test code; the file survives piped/redirected stderr.
+    // The env check is cached in a function-local static so it is read once per
+    // process.
+    {
+        static const bool model_debug =
+            qEnvironmentVariableIsSet("DIR2MD_MODEL_DEBUG");
+        if (model_debug) {
+            std::cerr << "[model raw] " << line.toStdString() << "\n";
+            static QFile debug_log(QDir::tempPath() + "/dir2md_model_debug.log");
+            if (!debug_log.isOpen()) {
+                const bool opened = debug_log.open(QIODevice::Append | QIODevice::Text);
+                if (!opened) {
+                    qWarning() << "Could not open model debug log:" << debug_log.errorString();
+                }
+            }
+            if (debug_log.isOpen()) {
+                debug_log.write(line.toUtf8() + "\n");
+                debug_log.flush();
+            }
+        }
+    }
+
+    // Termination already observed ([DONE] or stop: true): no further lines
+    // are expected.
+    if (m_stream_finished) {
+        return;
+    }
+
+    // SSE framing: strip a leading "data:" prefix plus surrounding whitespace.
+    // NDJSON lines (no prefix) pass through unchanged.
+    QString payload = line;
+    if (payload.startsWith("data:")) {
+        payload = payload.mid(5).trimmed();
+    }
+
+    // Blank lines and SSE comment lines are ignored silently.
+    if (payload.isEmpty() || payload.startsWith(':')) {
+        return;
+    }
+
+    // OpenAI end-of-stream sentinel.
+    if (payload == "[DONE]") {
+        m_stream_finished = true;
+        return;
+    }
+
+    QJsonParseError parse_error;
+    QJsonDocument doc = QJsonDocument::fromJson(payload.toUtf8(), &parse_error);
+    if (parse_error.error != QJsonParseError::NoError || !doc.isObject()) {
+        // Malformed data line: warn and continue; the stream still completes
+        // with the text accumulated from all valid lines.
+        qWarning() << "model_client_base: ignoring malformed response line:" << payload.left(200);
+        return;
+    }
+
+    QJsonObject root = doc.object();
+
+    // Native end-of-stream signal: the final object carries stop: true. (OpenAI
+    // chunks never carry a top-level "stop" field, so this is safe to check
+    // unconditionally.)
+    if (root["stop"].toBool(false)) {
+        m_stream_finished = true;
+    }
+
     auto parser = schema_registry::create_parser();
 
-    // Try to extract text content
-    QString token = parser->parse_line(line);
+    // Extract text content. Dedicated reasoning fields (reasoning_content /
+    // thinking) are never read by the parsers, so they are discarded and never
+    // mixed into the answer text; inline think/reasoning tags inside content
+    // pass through verbatim for the downstream thinking_stripper.
+    QString token = parser->parse_line(payload);
     if (!token.isEmpty()) {
         m_accumulated_text += token;
         m_chunk_buffer += token;
 
-        // Restart coalescing timer
+        // Restart coalescing timer (streaming only — this path is never
+        // reached when stream is false).
         m_coalescing_timer->start(m_coalescing_interval_ms);
     }
 
     // Try to extract usage stats
-    auto usage_stats = parser->parse_usage(line);
+    auto usage_stats = parser->parse_usage(payload);
     if (usage_stats.total_tokens > 0) {
         m_current_stats = usage_stats;
     }
@@ -370,10 +552,29 @@ auto model_client_base::on_finished() -> void {
         return;
     }
 
-    // Emit any remaining chunk buffer
-    if (!m_chunk_buffer.isEmpty()) {
-        emit incremental_chunk(m_chunk_buffer);
-        m_chunk_buffer.clear();
+    if (m_stream) {
+        // A final line may arrive without a trailing newline; the connection
+        // is closed, so whatever remains in the carry-over buffer is complete.
+        if (!m_line_carryover.trimmed().isEmpty()) {
+            process_line(m_line_carryover.trimmed());
+            m_line_carryover.clear();
+        }
+
+        // Emit any remaining chunk buffer
+        if (!m_chunk_buffer.isEmpty()) {
+            emit incremental_chunk(m_chunk_buffer);
+            m_chunk_buffer.clear();
+        }
+    } else {
+        // Non-streaming: extract the answer from the accumulated body once.
+        auto parser = schema_registry::create_parser();
+        m_accumulated_text = parser->parse_full_response(m_full_body);
+
+        // Usage metadata may be present in the non-streaming body too.
+        auto usage_stats = parser->parse_usage(m_full_body);
+        if (usage_stats.total_tokens > 0) {
+            m_current_stats = usage_stats;
+        }
     }
 
     m_busy = false;
@@ -498,7 +699,7 @@ auto image_to_text_client::format_payload() -> QJsonDocument {
     root["messages"] = messages_array;
     root["model"] = m_model_name;
     root["temperature"] = m_temperature;
-    root["stream"] = true;
+    root["stream"] = m_stream;
 
     return QJsonDocument(root);
 }
@@ -634,7 +835,7 @@ auto text_to_text_client::format_payload() -> QJsonDocument {
     }
     // assistant_prompt is discarded for OpenAI format
 
-    QJsonDocument doc = parser->construct_request(messages, m_temperature);
+    QJsonDocument doc = parser->construct_request(messages, m_temperature, m_stream);
     QJsonObject root = doc.object();
     root["model"] = m_model_name;
     return QJsonDocument(root);

@@ -11,6 +11,8 @@
 #include <QImage>
 #include <memory>
 #include <vector>
+#include <functional>
+#include <iostream>
 
 #include "backend/core/expected.hpp"
 
@@ -66,8 +68,14 @@ public:
     // Extract token usage metadata from a final response object if present
     virtual auto parse_usage(const QString &line) -> token_stats { return token_stats{}; }
 
-    // Construct the request payload as QJsonDocument
-    virtual auto construct_request(const std::vector<chat_message> &messages, float temperature) -> QJsonDocument = 0;
+    // Extract the answer text from a complete non-streaming response body.
+    // Returns an empty string when the body is not valid JSON, is not an
+    // object, or lacks the schema's answer path.
+    virtual auto parse_full_response(const QString &body) -> QString = 0;
+
+    // Construct the request payload as QJsonDocument. The stream mode is
+    // carried into the payload so the server responds in the matching format.
+    virtual auto construct_request(const std::vector<chat_message> &messages, float temperature, bool stream) -> QJsonDocument = 0;
 };
 
 // ============================================================================
@@ -78,7 +86,8 @@ class openai_schema_parser : public api_schema_parser {
 public:
     auto parse_line(const QString &line) -> QString override;
     auto parse_usage(const QString &line) -> token_stats override;
-    auto construct_request(const std::vector<chat_message> &messages, float temperature) -> QJsonDocument override;
+    auto parse_full_response(const QString &body) -> QString override;
+    auto construct_request(const std::vector<chat_message> &messages, float temperature, bool stream) -> QJsonDocument override;
 };
 
 // ============================================================================
@@ -89,7 +98,8 @@ class native_schema_parser : public api_schema_parser {
 public:
     auto parse_line(const QString &line) -> QString override;
     auto parse_usage(const QString &line) -> token_stats override;
-    auto construct_request(const std::vector<chat_message> &messages, float temperature) -> QJsonDocument override;
+    auto parse_full_response(const QString &body) -> QString override;
+    auto construct_request(const std::vector<chat_message> &messages, float temperature, bool stream) -> QJsonDocument override;
 };
 
 // ============================================================================
@@ -117,6 +127,7 @@ class model_client_base : public QObject {
     Q_PROPERTY(QString model_name READ get_model_name WRITE set_model_name NOTIFY model_name_changed)
     Q_PROPERTY(float temperature READ get_temperature WRITE set_temperature NOTIFY temperature_changed)
     Q_PROPERTY(int coalescing_interval_ms READ get_coalescing_interval_ms WRITE set_coalescing_interval_ms NOTIFY coalescing_interval_ms_changed)
+    Q_PROPERTY(bool stream READ get_stream WRITE set_stream NOTIFY stream_changed)
 
 public:
     explicit model_client_base(QObject *parent = nullptr);
@@ -135,8 +146,20 @@ public:
     auto get_coalescing_interval_ms() const -> int;
     auto set_coalescing_interval_ms(int ms) -> void;
 
+    auto get_stream() const -> bool;
+    auto set_stream(const bool &stream) -> void;
+
     // State query
     auto is_busy() const -> bool;
+
+    // Test-only diagnostics: capture the raw response lines exactly as they
+    // arrive from the server (before schema parsing). Mirrors the
+    // SettingsManager::setTestBaseDirectory pattern — a process-global hook
+    // that is a no-op unless explicitly set. Used by integration tests to see
+    // what the endpoint actually sends (e.g. SSE "data:" prefixes vs NDJSON).
+    using raw_line_probe_fn = std::function<void(const QString &raw_line)>;
+    static auto set_raw_line_probe(raw_line_probe_fn probe) -> void;
+    static auto clear_raw_line_probe() -> void;
 
     // Actions
     virtual auto send_request() -> void = 0;
@@ -151,6 +174,7 @@ signals:
     void model_name_changed(const QString &name);
     void temperature_changed(float temp);
     void coalescing_interval_ms_changed(int ms);
+    void stream_changed(bool stream);
 
 protected:
     QNetworkAccessManager *m_network_manager;
@@ -161,12 +185,22 @@ protected:
     QString m_model_name;
     float m_temperature = 0.7f;
     int m_coalescing_interval_ms = 250;
+    bool m_stream = false;
 
     QString m_accumulated_text;
     QString m_chunk_buffer;
+    // Carry-over buffer holding the trailing partial line from the previous
+    // read, so a JSON line split across two TCP reads is reassembled exactly
+    // once before parsing.
+    QString m_line_carryover;
+    // Full response body accumulator for the non-streaming path (stream=false).
+    QString m_full_body;
     token_stats m_current_stats;
     bool m_busy = false;
     bool m_cancelled = false;
+    // Set once a termination signal ([DONE] or stop: true) is observed; no
+    // further lines are expected after this.
+    bool m_stream_finished = false;
 
     // Internal helpers
     auto start_request(const QJsonDocument &payload) -> void;
@@ -180,6 +214,9 @@ private slots:
 
 private:
     auto process_line(const QString &line) -> void;
+
+    // Test-only raw-line probe (process-global, no-op unless set).
+    static raw_line_probe_fn s_raw_line_probe;
 };
 
 // ============================================================================

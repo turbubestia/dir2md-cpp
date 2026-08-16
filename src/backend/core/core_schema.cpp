@@ -17,12 +17,14 @@ namespace {
     namespace ocr_model {
         inline const QString endpoint = "ocr-model/endpoint";
         inline const QString model_name = "ocr-model/model-name";
+        inline const QString stream = "ocr-model/stream";
     }
 
     // language model
     namespace lang_model {
         inline const QString endpoint = "language-model/endpoint";
         inline const QString model_name = "language-model/model-name";
+        inline const QString stream = "language-model/stream";
     }
 
     // cli
@@ -79,7 +81,10 @@ void CoreSchema::registerSchemas(SettingsManager &manager) {
     manager.registerSchema({ ocr_model::model_name, "OCR Model Name", 
         "Name of the OCR model to use.", "OCR Model",
         "", QMetaType::fromType<QString>() });
-
+    manager.registerSchema({ ocr_model::stream, "OCR Model Stream", 
+        "Enable streaming for the OCR model.", "OCR Model",
+        false, QMetaType::fromType<bool>() });
+        
     // language model
     manager.registerSchema({ lang_model::endpoint, "Language Model Endpoint", 
         "Endpoint URL for the language model.", "Language Model",
@@ -87,6 +92,9 @@ void CoreSchema::registerSchemas(SettingsManager &manager) {
     manager.registerSchema({ lang_model::model_name, "Language Model Name", 
         "Name of the language model to use.", "Language Model",
         "", QMetaType::fromType<QString>() });
+    manager.registerSchema({ lang_model::stream, "Language Model Stream", 
+        "Enable streaming for the language model.", "Language Model",
+        false, QMetaType::fromType<bool>() });
 
     // cli
     manager.registerSchema({ cli::temperature, "CLI Temperature", 
