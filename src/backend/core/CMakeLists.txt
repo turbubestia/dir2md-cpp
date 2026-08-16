@@ -6,6 +6,8 @@ target_sources(dir2md_backend PRIVATE
     expected.cpp
     fzy.hpp
     fzy.cpp
+    mock_model_server.hpp
+    mock_model_server.cpp
     model.hpp
     model.cpp
     pdf_renderer.hpp

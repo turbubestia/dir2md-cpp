@@ -1,6 +1,6 @@
 
 #include <backend/core/model.hpp>
-#include "mock_model_server.hpp"
+#include <backend/core/mock_model_server.hpp>
 
 #include <QSignalSpy>
 #include <QObject>
@@ -13,7 +13,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
-class test_model_client : public QObject {
+class model_client_test : public QObject {
     Q_OBJECT
 
 private slots:
@@ -171,7 +171,7 @@ auto parse_request_body(const mock_model_server &server) -> QJsonObject {
 // Property tests
 // ============================================================================
 
-void test_model_client::test_endpoint_url_property() {
+void model_client_test::test_endpoint_url_property() {
     text_to_text_client client;
     QCOMPARE(client.get_endpoint_url(), QString(""));
 
@@ -179,7 +179,7 @@ void test_model_client::test_endpoint_url_property() {
     QCOMPARE(client.get_endpoint_url(), QString("http://localhost:8080"));
 }
 
-void test_model_client::test_model_name_property() {
+void model_client_test::test_model_name_property() {
     text_to_text_client client;
     QCOMPARE(client.get_model_name(), QString(""));
 
@@ -187,7 +187,7 @@ void test_model_client::test_model_name_property() {
     QCOMPARE(client.get_model_name(), QString("gpt-4o-mini"));
 }
 
-void test_model_client::test_temperature_property() {
+void model_client_test::test_temperature_property() {
     text_to_text_client client;
     QCOMPARE(client.get_temperature(), 0.7f);
 
@@ -195,7 +195,7 @@ void test_model_client::test_temperature_property() {
     QCOMPARE(client.get_temperature(), 0.5f);
 }
 
-void test_model_client::test_coalescing_interval_property() {
+void model_client_test::test_coalescing_interval_property() {
     text_to_text_client client;
     QCOMPARE(client.get_coalescing_interval_ms(), 250);
 
@@ -207,12 +207,12 @@ void test_model_client::test_coalescing_interval_property() {
 // Busy state tests
 // ============================================================================
 
-void test_model_client::test_initial_not_busy() {
+void model_client_test::test_initial_not_busy() {
     text_to_text_client client;
     QVERIFY(!client.is_busy());
 }
 
-void test_model_client::test_cancel_resets_busy() {
+void model_client_test::test_cancel_resets_busy() {
     text_to_text_client client;
     // Initially not busy
     QVERIFY(!client.is_busy());
@@ -229,7 +229,7 @@ void test_model_client::test_cancel_resets_busy() {
 // Cancel tests
 // ============================================================================
 
-void test_model_client::test_cancel_signal_emitted() {
+void model_client_test::test_cancel_signal_emitted() {
     text_to_text_client client;
     QSignalSpy spy(&client, &text_to_text_client::cancelled);
 
@@ -241,7 +241,7 @@ void test_model_client::test_cancel_signal_emitted() {
 // Token stats tests
 // ============================================================================
 
-void test_model_client::test_token_stats_default_values() {
+void model_client_test::test_token_stats_default_values() {
     token_stats stats;
     QCOMPARE(stats.total_tokens, 0);
     QCOMPARE(stats.tokens_per_sec, 0.0);
@@ -254,7 +254,7 @@ void test_model_client::test_token_stats_default_values() {
 // Stream property tests (R1)
 // ============================================================================
 
-void test_model_client::test_stream_property_default_false() {
+void model_client_test::test_stream_property_default_false() {
     text_to_text_client client;
     QCOMPARE(client.get_stream(), false);
 
@@ -262,7 +262,7 @@ void test_model_client::test_stream_property_default_false() {
     QCOMPARE(image_client.get_stream(), false);
 }
 
-void test_model_client::test_stream_property_set_emits_once() {
+void model_client_test::test_stream_property_set_emits_once() {
     text_to_text_client client;
     QSignalSpy spy(&client, &model_client_base::stream_changed);
 
@@ -272,7 +272,7 @@ void test_model_client::test_stream_property_set_emits_once() {
     QCOMPARE(client.get_stream(), true);
 }
 
-void test_model_client::test_stream_property_same_value_no_emit() {
+void model_client_test::test_stream_property_same_value_no_emit() {
     text_to_text_client client;
     QSignalSpy spy(&client, &model_client_base::stream_changed);
 
@@ -293,7 +293,7 @@ void test_model_client::test_stream_property_same_value_no_emit() {
 // Request payload stream flag tests (R2)
 // ============================================================================
 
-void test_model_client::test_payload_carries_stream_true_openai() {
+void model_client_test::test_payload_carries_stream_true_openai() {
     mock_model_server server;
     server.set_transport(mock_model_server::transport::single_body);
     server.set_schema(mock_model_server::schema::openai);
@@ -308,7 +308,7 @@ void test_model_client::test_payload_carries_stream_true_openai() {
     QCOMPARE(root["stream"].toBool(false), true);
 }
 
-void test_model_client::test_payload_carries_stream_false_openai() {
+void model_client_test::test_payload_carries_stream_false_openai() {
     mock_model_server server;
     server.set_transport(mock_model_server::transport::single_body);
     server.set_schema(mock_model_server::schema::openai);
@@ -323,7 +323,7 @@ void test_model_client::test_payload_carries_stream_false_openai() {
     QCOMPARE(root["stream"].toBool(true), false);
 }
 
-void test_model_client::test_payload_carries_stream_true_native() {
+void model_client_test::test_payload_carries_stream_true_native() {
     mock_model_server server;
     server.set_transport(mock_model_server::transport::single_body);
     server.set_schema(mock_model_server::schema::native);
@@ -338,7 +338,7 @@ void test_model_client::test_payload_carries_stream_true_native() {
     QCOMPARE(root["stream"].toBool(false), true);
 }
 
-void test_model_client::test_payload_carries_stream_false_native() {
+void model_client_test::test_payload_carries_stream_false_native() {
     mock_model_server server;
     server.set_transport(mock_model_server::transport::single_body);
     server.set_schema(mock_model_server::schema::native);
@@ -353,7 +353,7 @@ void test_model_client::test_payload_carries_stream_false_native() {
     QCOMPARE(root["stream"].toBool(true), false);
 }
 
-void test_model_client::test_image_payload_carries_stream_true() {
+void model_client_test::test_image_payload_carries_stream_true() {
     mock_model_server server;
     server.set_transport(mock_model_server::transport::single_body);
     server.set_schema(mock_model_server::schema::openai);
@@ -375,7 +375,7 @@ void test_model_client::test_image_payload_carries_stream_true() {
     QCOMPARE(root["stream"].toBool(false), true);
 }
 
-void test_model_client::test_image_payload_carries_stream_false() {
+void model_client_test::test_image_payload_carries_stream_false() {
     mock_model_server server;
     server.set_transport(mock_model_server::transport::single_body);
     server.set_schema(mock_model_server::schema::openai);
@@ -401,7 +401,7 @@ void test_model_client::test_image_payload_carries_stream_false() {
 // Response format matrix tests (R3)
 // ============================================================================
 
-void test_model_client::test_sse_openai_streaming() {
+void model_client_test::test_sse_openai_streaming() {
     mock_model_server server;
     server.set_transport(mock_model_server::transport::sse);
     server.set_schema(mock_model_server::schema::openai);
@@ -417,7 +417,7 @@ void test_model_client::test_sse_openai_streaming() {
              mock_model_server::expected_completion_text(mock_model_server::reasoning::plain));
 }
 
-void test_model_client::test_ndjson_openai_streaming() {
+void model_client_test::test_ndjson_openai_streaming() {
     mock_model_server server;
     server.set_transport(mock_model_server::transport::ndjson);
     server.set_schema(mock_model_server::schema::openai);
@@ -433,7 +433,7 @@ void test_model_client::test_ndjson_openai_streaming() {
              mock_model_server::expected_completion_text(mock_model_server::reasoning::plain));
 }
 
-void test_model_client::test_nonstreaming_openai_body() {
+void model_client_test::test_nonstreaming_openai_body() {
     mock_model_server server;
     server.set_transport(mock_model_server::transport::single_body);
     server.set_schema(mock_model_server::schema::openai);
@@ -449,7 +449,7 @@ void test_model_client::test_nonstreaming_openai_body() {
              mock_model_server::expected_completion_text(mock_model_server::reasoning::plain));
 }
 
-void test_model_client::test_sse_native_streaming() {
+void model_client_test::test_sse_native_streaming() {
     mock_model_server server;
     server.set_transport(mock_model_server::transport::sse);
     server.set_schema(mock_model_server::schema::native);
@@ -465,7 +465,7 @@ void test_model_client::test_sse_native_streaming() {
              mock_model_server::expected_completion_text(mock_model_server::reasoning::plain));
 }
 
-void test_model_client::test_nonstreaming_native_body() {
+void model_client_test::test_nonstreaming_native_body() {
     mock_model_server server;
     server.set_transport(mock_model_server::transport::single_body);
     server.set_schema(mock_model_server::schema::native);
@@ -481,7 +481,7 @@ void test_model_client::test_nonstreaming_native_body() {
              mock_model_server::expected_completion_text(mock_model_server::reasoning::plain));
 }
 
-void test_model_client::test_dedicated_reasoning_discarded() {
+void model_client_test::test_dedicated_reasoning_discarded() {
     // Dedicated reasoning channel (reasoning_content) must be discarded: the
     // completion text contains only the final answer.
     mock_model_server server;
@@ -501,7 +501,7 @@ void test_model_client::test_dedicated_reasoning_discarded() {
     QVERIFY(!result.completion_text.contains("Step 1: think..."));
 }
 
-void test_model_client::test_inline_tags_preserved_verbatim() {
+void model_client_test::test_inline_tags_preserved_verbatim() {
     // Inline think tags inside content must pass through verbatim, in order.
     mock_model_server server;
     server.set_transport(mock_model_server::transport::sse);
@@ -525,7 +525,7 @@ void test_model_client::test_inline_tags_preserved_verbatim() {
 // Robustness tests (R4)
 // ============================================================================
 
-void test_model_client::test_split_line_reassembled_exactly_once() {
+void model_client_test::test_split_line_reassembled_exactly_once() {
     // Split the response mid-line across two TCP sends; the reassembled line
     // must be extracted exactly once (no loss, no duplication).
     mock_model_server server;
@@ -544,7 +544,7 @@ void test_model_client::test_split_line_reassembled_exactly_once() {
              mock_model_server::expected_completion_text(mock_model_server::reasoning::plain));
 }
 
-void test_model_client::test_malformed_line_warns_and_completes() {
+void model_client_test::test_malformed_line_warns_and_completes() {
     // A malformed data line mid-stream must not abort: completion still fires
     // with the text from all valid lines.
     mock_model_server server;
@@ -563,7 +563,7 @@ void test_model_client::test_malformed_line_warns_and_completes() {
              mock_model_server::expected_completion_text(mock_model_server::reasoning::plain));
 }
 
-void test_model_client::test_done_sentinel_completion_fires_once() {
+void model_client_test::test_done_sentinel_completion_fires_once() {
     // The [DONE] sentinel (OpenAI) must result in completion firing exactly once.
     mock_model_server server;
     server.set_transport(mock_model_server::transport::sse);
@@ -578,7 +578,7 @@ void test_model_client::test_done_sentinel_completion_fires_once() {
     QCOMPARE(result.completion_count, 1);
 }
 
-void test_model_client::test_stop_true_completion_fires_once() {
+void model_client_test::test_stop_true_completion_fires_once() {
     // The stop: true object (native) must result in completion firing exactly once.
     mock_model_server server;
     server.set_transport(mock_model_server::transport::sse);
@@ -597,7 +597,7 @@ void test_model_client::test_stop_true_completion_fires_once() {
 // Coalescing gating tests (R5)
 // ============================================================================
 
-void test_model_client::test_incremental_chunks_emitted_when_streaming() {
+void model_client_test::test_incremental_chunks_emitted_when_streaming() {
     mock_model_server server;
     server.set_transport(mock_model_server::transport::sse);
     server.set_schema(mock_model_server::schema::openai);
@@ -618,7 +618,7 @@ void test_model_client::test_incremental_chunks_emitted_when_streaming() {
     QCOMPARE(joined, result.completion_text);
 }
 
-void test_model_client::test_no_incremental_chunks_when_nonstreaming() {
+void model_client_test::test_no_incremental_chunks_when_nonstreaming() {
     mock_model_server server;
     server.set_transport(mock_model_server::transport::single_body);
     server.set_schema(mock_model_server::schema::openai);
@@ -635,5 +635,5 @@ void test_model_client::test_no_incremental_chunks_when_nonstreaming() {
 }
 
 // AUTOMOC handles moc generation
-QTEST_MAIN(test_model_client)
-#include "test_model_client.moc"
+QTEST_MAIN(model_client_test)
+#include "model_client_test.moc"

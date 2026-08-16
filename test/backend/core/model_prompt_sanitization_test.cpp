@@ -4,7 +4,7 @@
 #include <QObject>
 #include <QTest>
 
-class test_prompt_sanitization : public QObject {
+class model_prompt_sanitization_test : public QObject {
     Q_OBJECT
 
 private slots:
@@ -25,7 +25,7 @@ using namespace dir2md::backend;
 // Sanitization tests
 // ============================================================================
 
-void test_prompt_sanitization::test_sanitize_begin_of_text_token() {
+void model_prompt_sanitization_test::test_sanitize_begin_of_text_token() {
     QString input = "<|begin_of_text|>";
     QString sanitized = text_to_text_client::sanitize_prompt(input);
 
@@ -36,14 +36,14 @@ void test_prompt_sanitization::test_sanitize_begin_of_text_token() {
     QVERIFY(sanitized.contains(">"));
 }
 
-void test_prompt_sanitization::test_sanitize_end_of_text_token() {
+void model_prompt_sanitization_test::test_sanitize_end_of_text_token() {
     QString input = "<|end_of_text|>";
     QString sanitized = text_to_text_client::sanitize_prompt(input);
 
     QVERIFY(sanitized.contains(QChar(0x200B)));
 }
 
-void test_prompt_sanitization::test_sanitize_normal_text_unchanged() {
+void model_prompt_sanitization_test::test_sanitize_normal_text_unchanged() {
     QString input = "This is normal text without special tokens.";
     QString sanitized = text_to_text_client::sanitize_prompt(input);
 
@@ -51,7 +51,7 @@ void test_prompt_sanitization::test_sanitize_normal_text_unchanged() {
     QVERIFY(!sanitized.contains(QChar(0x200B)));
 }
 
-void test_prompt_sanitization::test_sanitize_multiple_tokens() {
+void model_prompt_sanitization_test::test_sanitize_multiple_tokens() {
     QString input = "Hello <|begin_of_text|> world <|end_of_text|>!";
     QString sanitized = text_to_text_client::sanitize_prompt(input);
 
@@ -70,7 +70,7 @@ void test_prompt_sanitization::test_sanitize_multiple_tokens() {
 // Post-processing tests
 // ============================================================================
 
-void test_prompt_sanitization::test_strip_zero_width_spaces() {
+void model_prompt_sanitization_test::test_strip_zero_width_spaces() {
     QString input = "Hello\u200B world\u200B!";
     QString output = text_to_text_client::strip_zero_width_spaces(input);
 
@@ -78,7 +78,7 @@ void test_prompt_sanitization::test_strip_zero_width_spaces() {
     QVERIFY(!output.contains(QChar(0x200B)));
 }
 
-void test_prompt_sanitization::test_strip_zero_width_spaces_no_effect_on_clean_text() {
+void model_prompt_sanitization_test::test_strip_zero_width_spaces_no_effect_on_clean_text() {
     QString input = "Clean text without special characters.";
     QString output = text_to_text_client::strip_zero_width_spaces(input);
 
@@ -86,5 +86,5 @@ void test_prompt_sanitization::test_strip_zero_width_spaces_no_effect_on_clean_t
 }
 
 // AUTOMOC handles moc generation
-QTEST_MAIN(test_prompt_sanitization)
-#include "test_prompt_sanitization.moc"
+QTEST_MAIN(model_prompt_sanitization_test)
+#include "model_prompt_sanitization_test.moc"
