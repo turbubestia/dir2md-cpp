@@ -80,6 +80,14 @@ void CoreSchema::registerSchemas(SettingsManager &manager) {
         "Endpoint URL for the language model.", "Language Model",
         "", QMetaType::fromType<QString>() });
 
+    // cli
+    manager.registerSchema({ cli::temperature, "CLI Temperature", 
+        "Default sampling temperature for CLI workflows.", "CLI",
+        0.7, QMetaType::fromType<double>(), 0.0, 2.0 });
+    manager.registerSchema({ cli::system_prompt_file, "CLI System Prompt File", 
+        "Path to the default system prompt file for CLI workflows.", "CLI",
+        "", QMetaType::fromType<QString>() });
+
     // md_gen
     manager.registerSchema({ md_gen::system_prompt_file, "System Prompt File", 
         "Path to the system prompt file for markdown generation.", "Markdown Generation",

@@ -8,6 +8,10 @@ target_sources(dir2md_backend PRIVATE
     fzy.cpp
     model.hpp
     model.cpp
+    pdf_renderer.hpp
+    pdf_renderer.cpp
     settings_manager.hpp
     settings_manager.cpp
+    thinking_stripper.hpp
+    thinking_stripper.cpp
 )

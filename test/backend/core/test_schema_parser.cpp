@@ -14,12 +14,14 @@ private slots:
     void test_openai_parse_malformed_json();
     void test_openai_parse_empty_line();
     void test_openai_parse_usage_line();
+    void test_openai_construct_request_roles();
 
     // Native parser tests
     void test_native_parse_content_line();
     void test_native_parse_malformed_json();
     void test_native_parse_empty_line();
     void test_native_parse_usage_line();
+    void test_native_construct_request_ignores_roles();
 
     // Schema registry tests
     void test_registry_default_is_openai();
@@ -66,6 +68,31 @@ void test_schema_parser::test_openai_parse_usage_line() {
     QCOMPARE(stats.prompt_tokens, 50);
 }
 
+void test_schema_parser::test_openai_construct_request_roles() {
+    openai_schema_parser parser;
+    std::vector<chat_message> messages = {
+        { message_role::system, "You are a helpful assistant." },
+        { message_role::user, "Hello there" },
+    };
+
+    QJsonDocument doc = parser.construct_request(messages, 0.7f);
+    QVERIFY(doc.isObject());
+    const QJsonObject root = doc.object();
+
+    // The system prompt must be carried with role "system", the user prompt
+    // with role "user" (the Phase 5 role fix).
+    const QJsonArray arr = root["messages"].toArray();
+    QCOMPARE(arr.size(), 2);
+    QCOMPARE(arr[0]["role"].toString(), QString("system"));
+    QCOMPARE(arr[0]["content"].toString(), QString("You are a helpful assistant."));
+    QCOMPARE(arr[1]["role"].toString(), QString("user"));
+    QCOMPARE(arr[1]["content"].toString(), QString("Hello there"));
+
+    // Tolerance compare: the payload stores a float, so 0.7f is not exactly 0.7.
+    QVERIFY(qAbs(root["temperature"].toDouble() - 0.7) < 1e-6);
+    QVERIFY(root["stream"].toBool());
+}
+
 // ============================================================================
 // Native parser tests
 // ============================================================================
@@ -96,6 +123,24 @@ void test_schema_parser::test_native_parse_usage_line() {
     QCOMPARE(stats.prompt_eval_time_ms, qint64(50));
     QCOMPARE(stats.generation_time_ms, qint64(1000));
     QVERIFY(stats.tokens_per_sec > 0);
+}
+
+void test_schema_parser::test_native_construct_request_ignores_roles() {
+    native_schema_parser parser;
+    std::vector<chat_message> messages = {
+        { message_role::system, "system line" },
+        { message_role::user, "user line" },
+    };
+
+    QJsonDocument doc = parser.construct_request(messages, 0.7f);
+    QVERIFY(doc.isObject());
+    const QJsonObject root = doc.object();
+
+    // The native path has no role concept: contents are concatenated with a
+    // newline delimiter and roles are ignored (preserves pre-fix behavior).
+    QCOMPARE(root["prompt"].toString(), QString("system line\nuser line"));
+    QVERIFY(qAbs(root["temperature"].toDouble() - 0.7) < 1e-6);
+    QVERIFY(root["stream"].toBool());
 }
 
 // ============================================================================

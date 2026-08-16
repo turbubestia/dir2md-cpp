@@ -47,6 +47,10 @@ private slots:
     void test_settings_manager_schemas();
     void test_settings_manager_signal();
 
+    // CLI settings registration (Phase 2) ------------------------------------
+
+    void test_cli_defaults_registered();
+
     // Conversion and validation tests ----------------------------------------
 
     void test_set_rejects_invalid_conversion();
@@ -294,6 +298,20 @@ void setting_manager_test::test_settings_manager_signal()
     QVERIFY(signalEmitted);
     QCOMPARE(emittedKey, QString("performance/core/max_threads"));
     QCOMPARE(emittedValue.toInt(), 8);
+}
+
+void setting_manager_test::test_cli_defaults_registered()
+{
+    dir2md::backend::SettingsManager manager;
+    registerCoreSchemas(manager);
+
+    // Both CLI keys must be registered after CoreSchema::registerSchemas().
+    QVERIFY(manager.schemas().contains("cli/temperature"));
+    QVERIFY(manager.schemas().contains("cli/system-prompt-file"));
+
+    // With no persisted value, get() falls back to the schema defaults.
+    QCOMPARE(manager.get("cli/temperature").toDouble(), 0.7);
+    QCOMPARE(manager.get("cli/system-prompt-file").toString(), QString(""));
 }
 
 // Save/load tests ----------------------------------------------------------

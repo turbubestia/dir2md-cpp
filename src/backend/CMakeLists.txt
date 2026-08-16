@@ -10,6 +10,7 @@ target_link_libraries(dir2md_backend PUBLIC
     Qt6::Core
     Qt6::Network
     Qt6::Gui
+    Qt6::Pdf
     fzy
 )
 

@@ -111,15 +111,30 @@ auto openai_schema_parser::parse_usage(const QString &line) -> token_stats {
     return stats;
 }
 
-auto openai_schema_parser::construct_request(const QStringList &messages, float temperature) -> QJsonDocument {
+namespace {
+
+auto role_to_string(message_role role) -> QString {
+    switch (role) {
+        case message_role::system:
+            return "system";
+        case message_role::assistant:
+            return "assistant";
+        case message_role::user:
+        default:
+            return "user";
+    }
+}
+
+} // namespace
+
+auto openai_schema_parser::construct_request(const std::vector<chat_message> &messages, float temperature) -> QJsonDocument {
     QJsonObject root;
     QJsonArray messages_array;
 
-    for (const QString &msg : messages) {
+    for (const chat_message &msg : messages) {
         QJsonObject msg_obj;
-        msg_obj["content"] = msg;
-        // Default to "user" role; the caller should structure messages appropriately
-        msg_obj["role"] = "user";
+        msg_obj["content"] = msg.content;
+        msg_obj["role"] = role_to_string(msg.role);
         messages_array.append(msg_obj);
     }
 
@@ -197,16 +212,17 @@ auto native_schema_parser::parse_usage(const QString &line) -> token_stats {
     return stats;
 }
 
-auto native_schema_parser::construct_request(const QStringList &messages, float temperature) -> QJsonDocument {
+auto native_schema_parser::construct_request(const std::vector<chat_message> &messages, float temperature) -> QJsonDocument {
     QJsonObject root;
 
-    // Native format uses a single prompt string with <|...|> delimiters
+    // Native format uses a single prompt string with <|...|> delimiters.
+    // Roles have no meaning on the native path; only contents are used.
     QString prompt;
-    for (int i = 0; i < messages.size(); ++i) {
+    for (size_t i = 0; i < messages.size(); ++i) {
         if (i > 0) {
             prompt += "\n";
         }
-        prompt += messages[i];
+        prompt += messages[i].content;
     }
 
     root["prompt"] = prompt;
@@ -384,6 +400,19 @@ auto model_client_base::on_coalescing_timeout() -> void {
 
 image_to_text_client::image_to_text_client(QObject *parent)
     : model_client_base(parent) {}
+
+auto image_to_text_client::send_request() -> void {
+    DEBUG_ASSERT(!m_busy);
+
+    if (m_image_data_uri.isEmpty()) {
+        error_frame err(-1, "No image configured for request");
+        emit error_occurred(err);
+        return;
+    }
+
+    auto payload = format_payload();
+    start_request(payload);
+}
 
 auto image_to_text_client::send_request(const QString &file_path, const QString &prompt) -> void {
     DEBUG_ASSERT(!m_busy);
@@ -578,29 +607,22 @@ auto text_to_text_client::format_payload() -> QJsonDocument {
     // Sanitize user prompt to prevent prompt injection
     QString sanitized_user = sanitize_prompt(m_user_prompt);
 
-    if (schema_registry::get_active_schema() == schema_type::native) {
-        // Native format: concatenate with <|...|> delimiters
-        QStringList messages;
-        if (!m_system_prompt.isEmpty()) {
-            messages.append(m_system_prompt);
-        }
-        messages.append(sanitized_user);
-        if (!m_assistant_prompt.isEmpty()) {
-            messages.append(m_assistant_prompt);
-        }
-
-        return parser->construct_request(messages, m_temperature);
-    } else {
-        // OpenAI format: message array with role/content
-        QStringList messages;
-        if (!m_system_prompt.isEmpty()) {
-            messages.append(m_system_prompt);
-        }
-        messages.append(sanitized_user);
-        // assistant_prompt is discarded for OpenAI format
-
-        return parser->construct_request(messages, m_temperature);
+    std::vector<chat_message> messages;
+    if (!m_system_prompt.isEmpty()) {
+        messages.push_back({ message_role::system, m_system_prompt });
     }
+    messages.push_back({ message_role::user, sanitized_user });
+
+    if (schema_registry::get_active_schema() == schema_type::native) {
+        // Native format: concatenate with <|...|> delimiters. The assistant
+        // prompt participates only on the native path.
+        if (!m_assistant_prompt.isEmpty()) {
+            messages.push_back({ message_role::assistant, m_assistant_prompt });
+        }
+    }
+    // assistant_prompt is discarded for OpenAI format
+
+    return parser->construct_request(messages, m_temperature);
 }
 
 } // namespace dir2md::backend

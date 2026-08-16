@@ -38,6 +38,21 @@ struct token_stats {
 };
 
 // ============================================================================
+// Chat message (role + content)
+// ============================================================================
+
+enum class message_role {
+    system,
+    user,
+    assistant
+};
+
+struct chat_message {
+    message_role role = message_role::user;
+    QString content;
+};
+
+// ============================================================================
 // Schema parser abstract interface
 // ============================================================================
 
@@ -52,7 +67,7 @@ public:
     virtual auto parse_usage(const QString &line) -> token_stats { return token_stats{}; }
 
     // Construct the request payload as QJsonDocument
-    virtual auto construct_request(const QStringList &messages, float temperature) -> QJsonDocument = 0;
+    virtual auto construct_request(const std::vector<chat_message> &messages, float temperature) -> QJsonDocument = 0;
 };
 
 // ============================================================================
@@ -63,7 +78,7 @@ class openai_schema_parser : public api_schema_parser {
 public:
     auto parse_line(const QString &line) -> QString override;
     auto parse_usage(const QString &line) -> token_stats override;
-    auto construct_request(const QStringList &messages, float temperature) -> QJsonDocument override;
+    auto construct_request(const std::vector<chat_message> &messages, float temperature) -> QJsonDocument override;
 };
 
 // ============================================================================
@@ -74,7 +89,7 @@ class native_schema_parser : public api_schema_parser {
 public:
     auto parse_line(const QString &line) -> QString override;
     auto parse_usage(const QString &line) -> token_stats override;
-    auto construct_request(const QStringList &messages, float temperature) -> QJsonDocument override;
+    auto construct_request(const std::vector<chat_message> &messages, float temperature) -> QJsonDocument override;
 };
 
 // ============================================================================
@@ -170,6 +185,9 @@ class image_to_text_client : public model_client_base {
 
 public:
     explicit image_to_text_client(QObject *parent = nullptr);
+
+    // Send the previously configured image (file path or QImage) and prompt.
+    auto send_request() -> void override;
 
     auto send_request(const QString &file_path, const QString &prompt = "") -> void;
     auto send_request(const QImage &image, const QString &prompt = "") -> void;
