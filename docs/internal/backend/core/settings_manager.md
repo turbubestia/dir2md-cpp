@@ -75,7 +75,7 @@ The class is designed as a shared backend component consumed by both the QtQuick
 ### Persistence
 
 - **`save_to_file(filePath)`** → `bool`
-  Resolves path (security-checked), validates that no registered schema has an empty category (throws via `RUNTIME_ASSERT` if found), groups values by category into nested JSON using normalized format for JSON keys, writes atomically via `QSaveFile`. Emits `settingsSaved` on success.
+  Resolves path (security-checked), then defensively asserts that every schema backing an active value has a non-empty category (throws via `RUNTIME_ASSERT` if violated — normally unreachable because `registerSchema` auto-fills empty categories from the key prefix). Groups values by category into nested JSON using normalized format for JSON keys, writes atomically via `QSaveFile`. Emits `settingsSaved` on success.
 
 - **`load_from_file(filePath)`** → `bool`
   Resolves path, parses JSON, flattens nested structure, matches flat keys to registered schemas via normalized category comparison, stages accepted values in a candidate map, then atomically replaces `m_values`. Emits `settingChanged` for added, changed, and removed keys.
@@ -165,9 +165,9 @@ Uses `QSaveFile` to write to a temporary file first, then atomically rename on c
 
 ## Static Analysis and Security
 
-### 1. Test Mode Path Resolution Is Safer Than Previous Debug Mode
+### 1. Test Mode Path Resolution Rejects Traversal but Not Symlink Escape
 
-**Evidence:** The previous `DIR2MD_DEBUG_TEST_PATH` macro-based debug mode has been replaced with a proper test-only API (`setTestBaseDirectory`). The new `resolvePersistencePath` in test mode rejects paths containing `/` or `\` separators and absolute paths, then verifies the resolved path stays within the test base using `isWithinPath`.
+**Evidence:** When `setTestBaseDirectory` has been called, `resolvePersistencePath` runs in test mode: it rejects paths containing `/` or `\` separators and absolute paths, then verifies the resolved path stays within the test base using `isWithinPath`.
 
 **Risk:** Significantly reduced compared to the previous implementation. The test mode no longer allows arbitrary paths within the home directory. However, `isWithinPath` still uses `QDir::cleanPath` (which removes `.` and `..` but does not resolve symlinks), so a symlink inside the test base directory could still be followed.
 
