@@ -23,6 +23,7 @@ struct error_frame {
 template <typename T>
 class expected {
 public:
+    // ctor & dtor ------------------------------------------------------------
     expected() : m_has_value(false), m_error(0, "") {}
 
     explicit expected(T value) : m_has_value(true), m_value(std::move(value)), m_error(0, "") {}
@@ -31,10 +32,18 @@ public:
              const std::source_location &loc = std::source_location::current())
         : m_has_value(false), m_error(code, desc, loc) {}
 
-    // State query
+    expected(const expected &other) = default;
+    
+    expected(expected &&other) noexcept = default;
+
+    // operators --------------------------------------------------------------
+    auto operator=(const expected &other) -> expected & = default;
+    auto operator=(expected &&other) noexcept -> expected & = default;
+
+    // properties -------------------------------------------------------------
     auto has_value() const -> bool { return m_has_value; }
 
-    // Accessors
+    // methods ----------------------------------------------------------------
     auto value_or(T default_value) -> T {
         if (m_has_value) {
             return m_value;
@@ -61,14 +70,6 @@ public:
         -> expected<T> {
         return expected<T>(code, desc, loc);
     }
-
-    // Copy semantics
-    expected(const expected &other) = default;
-    auto operator=(const expected &other) -> expected & = default;
-
-    // Move semantics
-    expected(expected &&other) noexcept = default;
-    auto operator=(expected &&other) noexcept -> expected & = default;
 
 private:
     bool m_has_value;

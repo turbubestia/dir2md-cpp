@@ -117,6 +117,7 @@ const auto v = result.value();
 - **Impact:** Hard-to-diagnose runtime failures; empty exception messages defeat logging and crash reporting; the code-0/empty-description sentinel is overloaded as both "success-state placeholder" and "default-constructed error".
 - **Mitigation:** Either delete the default constructor (forcing explicit state construction) or make the default state explicitly documented and give it a non-zero sentinel code with a description such as `"default-constructed expected<T>"`. Alternatively, assert in `value()` that the description is non-empty when throwing.
 - **Follow-up test recommendation:** A test that default-constructs `expected<int>`, asserts `!has_value()`, and documents (or, after mitigation, rejects) the resulting code/description; plus a compile-time or static-analysis check that no backend function returning `expected<T>` has a control path without an explicit return.
+**User: Actionable, delete the default constructor. If the intention is to make a default initialized `expected<T>`, then it must be explicit with the constructor `expected<T>({})`. In addition, the use of the static `make(...)` methods does not add any improve semantic in its current form, it stil creates a temporaty value that is then move to the stored, it does not create an inplace object. So we either remove it or we create a template `make<>` to mimic for example the distintion between `std::any()` and `std::make_any<T>(...)`.**
 
 ### Finding 2 — `noexcept = default` move operations can terminate for non-noexcept-movable `T` (latent)
 
@@ -125,6 +126,7 @@ const auto v = result.value();
 - **Impact:** Correctness/stability hazard that is invisible until the first such `T` is introduced; current instantiations (`int`, `double`, `QString`, `QImage`, `markdown_write_result`) all have noexcept moves, so this is latent, not active.
 - **Mitigation:** Drop the explicit `noexcept` (let the specification be computed from `T`), or document an explicit requirement that `T` must have noexcept move operations and enforce it with a static assertion (`std::is_nothrow_move_constructible_v<T>`).
 - **Follow-up test recommendation:** A static-assertion-based compile test (or a trait check in the unit test) verifying the intended guarantee; if the computed-specification route is chosen, a runtime test moving an `expected<T>` of a throwing-movable `T` inside a `try` block to confirm propagation instead of termination.
+**User: add a static assert.**
 
 ### Finding 3 — Single-argument constructor overloads value vs. error-code intent for arithmetic `T` (misuse hazard)
 
@@ -133,6 +135,7 @@ const auto v = result.value();
 - **Impact:** Logic errors that compile cleanly and invert success/failure semantics; especially dangerous for `expected<int>` where the value domain (page counts) and error-code domain (negative codes) overlap in type but not in meaning.
 - **Mitigation:** Prefer the `make_expected` / `make_expected_error` factories at all call sites (they make intent explicit and are the pattern the CLI already uses); document the argument-count rule in the header; optionally add a debug assertion in the success constructor that `T` values from known error-code-producing call sites are non-negative — or, more robustly, give `pdf_renderer::open()` a dedicated result type so page count and error code cannot share one constructor.
 - **Follow-up test recommendation:** A unit test asserting `expected<int>(-1).has_value() == true` to pin down the current (surprising) semantics, plus a review gate that new `expected<arithmetic>` call sites use the factories.
+**User: Actionable, this finding goes along with finding 1. To make the class more robust, lets make the constructors private and implement two static methods `make_value` and `make_error`. For `make_value` we must support make_value({}), make_value(), make_value(temporal), make_value(copy), make_value(std::move(...)), to cover the several ways a value can be constructed.**
 
 ### Finding 4 — `value()` discards error code and source location; accessors are non-const (minor)
 
@@ -141,6 +144,7 @@ const auto v = result.value();
 - **Impact:** Maintainability/diagnostic quality; low runtime risk since the established CLI pattern checks `has_value()` first.
 - **Mitigation:** Include the code in the exception message (e.g., `"error <code>: <description>"`) or throw a small custom exception type carrying the full `error_frame`; mark `value()`, `value_or()`, and `has_value()` const where practical.
 - **Follow-up test recommendation:** Extend `expected_test.cpp`'s `test_make_expected_error_value_throws` to verify the thrown message contains the error code after mitigation; add a const-correctness test reading through `const expected<int>&`.
+**User: Actionable, first make value_or() to be const, and value() to be const returning const T&. Second, compose a exception description including error code, description and source:line.**
 
 ### Finding 5 — `T m_value {}` requires default-constructible `T` and keeps a dead value in the error state (design constraint)
 
@@ -149,6 +153,7 @@ const auto v = result.value();
 - **Impact:** Minor memory overhead on the error path; reduced type flexibility. Not a correctness bug for current instantiations.
 - **Mitigation:** If the constraint ever bites, switch to `std::optional<T>`/`std::variant<T, error_frame>` storage or a union with explicit lifetime management; document the default-constructibility requirement in the header until then.
 - **Follow-up test recommendation:** None required for current code; a static assertion (`std::is_default_constructible_v<T>`) would make the implicit requirement explicit and turn accidental violations into clear compile errors.
+**User: Actionable. Store `T` as `std::variant<T,error_frame>`.**
 
 ### Finding 6 — Unescaped descriptions allow frame forgery in `error_stack::to_string()` (minor security)
 
@@ -157,6 +162,7 @@ const auto v = result.value();
 - **Impact:** Low — the output is diagnostic text, not parsed by security-relevant code in this repository; but descriptions do originate partly from external sources (Qt network error strings, file paths).
 - **Mitigation:** Sanitize or escape newlines in `description` when rendering (e.g., replace `\n`/`\r` with a visible marker), or document that `to_string()` output is untrusted diagnostic text.
 - **Follow-up test recommendation:** A unit test pushing a frame whose description contains `\n  at fake.cpp:1` and asserting the rendered output cannot be misread as a separate frame (after mitigation, asserting the escaped form).
+**User: Actionable, lets remove new lines and simplify spaces (double spaces to single spaces, or tabs to single space, etc.).**
 
 ### Finding 7 — Error codes are unnamespaced `int`s with cross-module collisions (contextual)
 
@@ -166,6 +172,8 @@ const auto v = result.value();
 - **Mitigation:** Introduce per-module `enum class` error codes (or a shared namespaced enum) and construct `error_frame` from them; keep `int` only as the wire/storage representation.
 - **Follow-up test recommendation:** A test asserting that each module's error codes are unique within that module, once enums exist.
 
+**User: Actionable, make each translation unit (.hpp/.cpp) to have a distionary of error like `QMap<int,QString>`. If we use the same error code in multiple lines, it could happend each to have a sligly different error descriptions.**
+
 ### Finding 8 — `error_stack` is unused by production code (low)
 
 - **Evidence:** Grep across `src/` shows `error_stack` referenced only in `expected.hpp`/`expected.cpp` and `test/backend/core/expected_test.cpp`; no backend, frontend, or CLI code constructs one.
@@ -173,6 +181,7 @@ const auto v = result.value();
 - **Impact:** Maintainability only.
 - **Mitigation:** Either wire `error_stack` into a real aggregation point (e.g., CLI workflow error reporting) or mark it as reserved/experimental in the header.
 - **Follow-up test recommendation:** None beyond the existing tests; revisit when (if) it is adopted.
+**User: Mark it as `experimental or not fully specified feature.**
 
 ### Residual risks and unanalyzed assumptions
 
